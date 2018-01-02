@@ -1145,18 +1145,32 @@ static void slide(signed char *r, const unsigned char *a) {
   int b;
   int k;
 
+  // Expand 32-bytes into 256-bits. `>> 3` is divide by 8; ` & 7` is mod 8.
   for (i = 0; i < 256; ++i) {
     r[i] = 1 & (a[i >> 3] >> (i & 7));
   }
 
   for (i = 0; i < 256; ++i) {
+    // Identify a "window" by finding the next set bit.
     if (r[i]) {
+      /* 95% sure that this should be b <= 4 because 5,6 should always hit
+      the break statement. */
       for (b = 1; b <= 6 && i + b < 256; ++b) {
         if (r[i + b]) {
+          /* Merge the next 3 bits into the current window. The bits are
+          encoded as powers of two into the first bit. Those adjacent bits
+          are then cleared. */
           if (r[i] + (r[i + b] << b) <= 15) {
             r[i] += r[i + b] << b; r[i + b] = 0;
+          /* Merge bit 4 into the current window. The pre-generated table does
+          not have an entry for this value, so subtract the value from the
+          current window and then add twice that amount into the next
+          window. */
           } else if (r[i] - (r[i + b] << b) >= -15) {
             r[i] -= r[i + b] << b;
+            /* Add twice the value into the next window. Scalars are less
+            than 256-bits, so last bit is never set if the sc_reduce
+            functions were used properly. */
             for (k = i + b; k < 256; ++k) {
               if (!r[k]) {
                 r[k] = 1;
@@ -1175,8 +1189,10 @@ static void slide(signed char *r, const unsigned char *a) {
 void ge_dsm_precomp(ge_dsmp r, const ge_p3 *s) {
   ge_p1p1 t;
   ge_p3 s2, u;
-  ge_p3_to_cached(&r[0], s);
-  ge_p3_dbl(&t, s); ge_p1p1_to_p3(&s2, &t);
+  ge_p3_to_cached(&r[0], s); // store 1A in first slot of table
+  ge_p3_dbl(&t, s); ge_p1p1_to_p3(&s2, &t); // compute 2A
+
+  // compute and store 3A, 7A, 9A, 11A, 13A, and 15A
   ge_add(&t, &s2, &r[0]); ge_p1p1_to_p3(&u, &t); ge_p3_to_cached(&r[1], &u);
   ge_add(&t, &s2, &r[1]); ge_p1p1_to_p3(&u, &t); ge_p3_to_cached(&r[2], &u);
   ge_add(&t, &s2, &r[2]); ge_p1p1_to_p3(&u, &t); ge_p3_to_cached(&r[3], &u);
@@ -1191,6 +1207,30 @@ r = a * A + b * B
 where a = a[0]+256*a[1]+...+256^31 a[31].
 and b = b[0]+256*b[1]+...+256^31 b[31].
 B is the Ed25519 base point (x,4/5) with x positive.
+
+The algorithm in use is a "sliding window".
+
+The obvious way to reduce EC additions is to group bits together into a
+window. A 2-bit window against point A would therefore yield a table of
+0A, 1A, 2A, and 3A. The processing loop would look at 2-bits at a time, and
+then do a 2-bit left shift. Despite the pre-compution, the total number of
+additions can be reduced.
+
+The sliding improves on the window technique; 0A is a NOP, so additions can
+be reduced further by having windows start only when the lowest-order bit is
+set. Then a pre-generated table would contain 1A, 3A, 5A, and 7A. The even
+values are not needed since the first bit is always set, and the technique
+extends the window size by one bit without increasing the pre-generated table
+size. This can further reduce the total additions needed.
+
+This version extends the sliding window size another bit without increasing
+the pre-generated table by using a signed value. If the 4-bit is set it
+subtracts that amount from the current window, and then adds double that
+amount in the next window. If the next window value is 1 then no work was
+saved, but with any other value the "carry" is batched with the next window.
+
+NOTE: The table in use is 3-bits, and the sliding window is 5-bits. The
+description used smaller numbers above to make it easier to describe.
 */
 
 void ge_double_scalarmult_base_vartime(ge_p2 *r, const unsigned char *a, const ge_p3 *A, const unsigned char *b) {
@@ -1207,13 +1247,16 @@ void ge_double_scalarmult_base_vartime(ge_p2 *r, const unsigned char *a, const g
 
   ge_p2_0(r);
 
+  // higher-order bits of zero are a NOP
   for (i = 255; i >= 0; --i) {
     if (aslide[i] || bslide[i]) break;
   }
 
   for (; i >= 0; --i) {
+    // arithmetic left shift every loop
     ge_p2_dbl(&t, r);
 
+    // add or subtract 1A, 3A, etc., based on window values. 0 is a NOP
     if (aslide[i] > 0) {
       ge_p1p1_to_p3(&u, &t);
       ge_add(&t, &u, &Ai[aslide[i]/2]);
@@ -1222,6 +1265,9 @@ void ge_double_scalarmult_base_vartime(ge_p2 *r, const unsigned char *a, const g
       ge_sub(&t, &u, &Ai[(-aslide[i])/2]);
     }
 
+    /* Same as above, but with the other window. `ge_madd` and `ge_msub` are
+    are used because the base point is `G`, and the table is pre-generated
+    (hard-coded constants) in a different format. */
     if (bslide[i] > 0) {
       ge_p1p1_to_p3(&u, &t);
       ge_madd(&t, &u, &ge_Bi[bslide[i]/2]);
