@@ -1098,10 +1098,10 @@ void toJsonValue(rapidjson::Document& doc, const rct::boroSig& sig, rapidjson::V
   val.SetObject();
 
   std::vector<rct::key> keyVector(sig.s0, std::end(sig.s0));
-  INSERT_INTO_JSON_OBJECT(val, doc, s0, sig.s0);
+  INSERT_INTO_JSON_OBJECT(val, doc, s0, keyVector);
 
   keyVector.assign(sig.s1, std::end(sig.s1));
-  INSERT_INTO_JSON_OBJECT(val, doc, s1, sig.s1);
+  INSERT_INTO_JSON_OBJECT(val, doc, s1, keyVector);
 
   INSERT_INTO_JSON_OBJECT(val, doc, ee, sig.ee);
 }
