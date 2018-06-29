@@ -159,17 +159,24 @@ namespace
     {
         std::signal(SIGINT, [] (int) { lws::scanner::stop(); });
 
-        MINFO("Using monerod ZMQ RPC at " << prog.daemon_rpc);
         auto disk = lws::db::storage::open(prog.db_path.c_str(), prog.create_queue_max);
-        lws::scanner scan{disk.clone(), std::move(prog.daemon_rpc)};
+        auto ctx = lws::rpc::context::make(std::move(prog.daemon_rpc));
 
-        lws::rest_server server{std::move(disk)};
+        MINFO("Using monerod ZMQ RPC at " << ctx.daemon_address());
+        auto client = MONERO_UNWRAP(
+            "Blockchain sync", lws::scanner::sync(
+                disk.clone(), MONERO_UNWRAP("Daemon connect", ctx.connect())
+            )
+        );
+
+        lws::rest_server server{disk.clone(), std::move(client)};
         MONERO_UNWRAP(
             "REST server start", server.run(prog.rest_server, prog.rest_threads)
         );
         MINFO("Listening for REST clients at " << prog.rest_server);
 
-        scan.fetch_loop(prog.scan_threads); // blocks until SIGINT
+        // blocks until SIGINT
+        lws::scanner::run(std::move(disk), std::move(ctx), prog.scan_threads);
     }
 }
 

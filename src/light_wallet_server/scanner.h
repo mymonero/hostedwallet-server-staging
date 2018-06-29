@@ -32,28 +32,23 @@
 #include <string>
 
 #include "light_wallet_server/db/storage.h"
+#include "light_wallet_server/rpc.h"
 
 namespace lws 
 {
     //! Scans all active `db::account`s. Detects if another process changes active list.
     class scanner
     {
-        db::storage disk;
-        std::string daemon_addr;
         static std::atomic<bool> running;
 
+        scanner() = delete;
+
     public:
-
-        //! Try to sync blockchain hashes with daemon. All errors fatal (exceptions).
-        explicit scanner(db::storage disk, std::string daemon_addr);
-
-        ~scanner() noexcept;
-
-        scanner(scanner const&) = delete;
-        scanner& operator=(scanner const&) = delete;
+        //! Use `client` to sync blockchain data, and \return client if successful.
+        static expect<rpc::client> sync(db::storage disk, rpc::client client);
 
         //! Poll daemon until `stop()` is called, using `thread_count` threads.
-        void fetch_loop(std::size_t thread_count);
+        static void run(db::storage disk, rpc::context ctx, std::size_t thread_count);
 
         //! \return True if `stop()` has never been called.
         static bool is_running() noexcept { return running; }

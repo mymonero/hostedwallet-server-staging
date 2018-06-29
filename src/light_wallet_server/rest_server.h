@@ -6,6 +6,7 @@
 
 #include "common/expect.h"
 #include "light_wallet_server/db/storage.h"
+#include "light_wallet_server/rpc.h"
 
 namespace lws
 {
@@ -15,7 +16,7 @@ class rest_server
     std::unique_ptr<internal> impl;
 
 public:
-    explicit rest_server(db::storage disk);
+    explicit rest_server(db::storage disk, rpc::client client);
 
     rest_server(rest_server&&) = default;
     rest_server(rest_server const&) = delete;

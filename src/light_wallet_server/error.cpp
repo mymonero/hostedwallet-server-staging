@@ -39,8 +39,6 @@ namespace lws
         {
             switch (lws::error(value))
             {
-                case error::kAbortScan:
-                    return "Thread needs to abort its scanning process";
                 case error::kAccountExists:
                     return "Account with specified address already exists";
                 case error::kBadAddress:
@@ -53,7 +51,7 @@ namespace lws
                     return "A blockchain reorg has been detected";
                 case error::kCreateQueueMax:
                     return "Exceeded maxmimum number of pending account requests";
-                case error::kDaemonConnectionFailure:
+                case error::kDaemonTimeout:
                     return "Connection failed with daemon";
                 case error::kDuplicateRequest:
                     return "A request of this type for this address has already been made";
@@ -61,6 +59,12 @@ namespace lws
                     return "Exceeded internal buffer for blockchain hashes";
                 case error::kNoSuchAccount:
                     return "No account with the specified address exists";
+                case error::kSignalAbortProcess:
+                    return "An in-process message was received to abort the process";
+                case error::kSignalAbortScan:
+                    return "An in-process message was received to abort account scanning";
+                case error::kSignalUnknown:
+                    return "An unknown in-process message was received";
                 case error::kSystemClockInvalidRange:
                     return "System clock is out of range for account storage format";
                 default:
@@ -76,10 +80,14 @@ namespace lws
                 case error::kBadAddress:
                 case error::kBadViewKey:
                     return std::errc::bad_address;
-                case error::kDaemonConnectionFailure:
-                    return std::errc::connection_refused;
+                case error::kDaemonTimeout:
+                    return std::errc::timed_out;
                 case error::kExceededBlockchainBuffer:
                     return std::errc::no_buffer_space;
+                case error::kSignalAbortProcess:
+                case error::kSignalAbortScan:
+                case error::kSignalUnknown:
+                    return std::errc::interrupted;
                 case error::kSystemClockInvalidRange:
                     return std::errc::result_out_of_range;
                 default:

@@ -34,17 +34,19 @@ namespace lws
     enum class error : int
     {
         // 0 is reserved for no error, as per expect<T>
-        kAbortScan = 1,           //!< Thread needs to stop scanning
-        kAccountExists,           //!< Tried to create an account that already exists
+        kAccountExists = 1,       //!< Tried to create an account that already exists
         kBadAddress,              //!< Invalid base58 public address
         kBadViewKey,              //!< Account has address/viewkey mismatch
         kBadBlockchain,           //!< Blockchain is invalid or wrong network type
         kBlockchainReorg,         //!< Blockchain reorg after fetching/scanning block(s)
         kCreateQueueMax,          //!< Reached maximum pending account requests
-        kDaemonConnectionFailure, //!< ZMQ connection failure with daemon
+        kDaemonTimeout,           //!< ZMQ send/receive timeout
         kDuplicateRequest,        //!< Account already has a request of  this type pending
         kExceededBlockchainBuffer,//!< Out buffer for blockchain is too small
         kNoSuchAccount,           //!< Account address is not in database.
+        kSignalAbortProcess,      //!< In process ZMQ PUB to abort the process was received
+        kSignalAbortScan,         //!< In process ZMQ PUB to abort the scan was received
+        kSignalUnknown,           //!< An unknown in process ZMQ PUB was received
         kSystemClockInvalidRange  //!< System clock is out of range for storage format
     };
 

@@ -37,7 +37,6 @@
 #include <cstring>
 #include <type_traits>
 #include <utility>
-#include <zmq.h>
 
 #include "common/error.h"
 #include "crypto/crypto.h"
@@ -49,217 +48,9 @@
 #include "light_wallet_server/error.h"
 #include "misc_log_ex.h"
 #include "rpc/daemon_messages.h"
-#include "rpc/message.h"
 
 #undef MONERO_DEFAULT_LOG_CATEGORY
 #define MONERO_DEFAULT_LOG_CATEGORY "lws"
-
-namespace
-{
-    constexpr const char stop_scan_endpoint[] = "inproc://stop_scan";
-
-    constexpr const std::chrono::seconds account_poll_interval{10};
-    constexpr const std::chrono::seconds block_poll_interval{20};
-    constexpr const std::chrono::minutes block_rpc_timeout{2};
-    constexpr const std::chrono::seconds send_timeout{30};
-    constexpr const std::chrono::seconds sync_rpc_timeout{30};
-}
-
-namespace mzmq
-{
-namespace
-{ 
-    enum class error : int {};
-
-    inline std::error_code make_error_code(mzmq::error value) noexcept
-    {
-        struct category final : std::error_category
-        {
-            virtual const char* name() const noexcept override final
-            {
-                return "mzmq::error_category()";
-            }
-
-            virtual std::string message(int value) const override final
-            {
-                char const* const msg = zmq_strerror(value);
-                if (msg)
-                    return msg;
-                return "zmq_strerror failure";
-            }
-        };
-        static const category instance{};
-        return std::error_code{int(value), instance};
-    }
-}
-}
-
-namespace std
-{
-    template<>
-    struct is_error_code_enum<::mzmq::error>
-      : true_type
-    {};
-}
-
-namespace mzmq
-{
-namespace
-{
-    struct terminate
-    {
-        void operator()(void* ptr) const noexcept
-        {
-            if (ptr)
-            {
-                while (zmq_close(ptr))
-                {
-                    if (zmq_errno() != EINTR)
-                        break;
-                }
-            }
-        }
-    };
-    using context = std::unique_ptr<void, terminate>;
-
-    struct close
-    {
-        void operator()(void* ptr) const noexcept
-        {
-            if (ptr)
-                zmq_close(ptr);
-        }  
-    };
-    using socket = std::unique_ptr<void, close>;
-
-
-    struct sockets 
-    {
-        socket daemon;
-        socket parent;
-
-        static socket make_daemon_conn(void* const ctx, std::string const& daemon_addr)
-        {
-            mzmq::socket daemon{zmq_socket(ctx, ZMQ_REQ)};
-            if (daemon == nullptr)
-                MONERO_THROW(mzmq::error(zmq_errno()), "ZMQ socket initialization failure");
-            if (zmq_connect(daemon.get(), daemon_addr.c_str()))
-                MONERO_THROW(mzmq::error(zmq_errno()), "ZMQ connect failure");
-            return daemon;
-        }
-
-        static sockets make(void* const ctx, std::string const& daemon_addr)
-        {
-            sockets out{make_daemon_conn(ctx, daemon_addr), nullptr};
-            out.parent.reset(zmq_socket(ctx, ZMQ_SUB));
-            if (out.parent == nullptr)
-                MONERO_THROW(mzmq::error(zmq_errno()), "ZMQ socket initialization failure");
-            if (zmq_setsockopt(out.parent.get(), ZMQ_SUBSCRIBE, "", 0))
-                MONERO_THROW(mzmq::error(zmq_errno()), "ZMQ subscription failure");
-
-            if (zmq_connect(out.parent.get(), stop_scan_endpoint))
-                MONERO_THROW(mzmq::error(zmq_errno()), "ZMQ connect failure"); 
-            return out;
-        }
-    };
-
-    template<typename M>
-    std::string make_message(char const* const name, M& message)
-    {
-        return cryptonote::rpc::FullMessage::requestMessage(name, std::addressof(message)).getJson();
-    }
-
-    template<typename M>
-    expect<M> unpack_message(zmq_msg_t& zmsg)
-    {
-        using namespace cryptonote::rpc;
-
-        char const* const json = reinterpret_cast<const char*>(zmq_msg_data(std::addressof(zmsg)));
-        if (json == nullptr)
-            return {common_error::kInvalidArgument};
-
-        M msg{};
-        msg.fromJson(
-            FullMessage{std::string{json, zmq_msg_size(std::addressof(zmsg))}}.getMessage()
-        );
-        return msg;
-    }
-
-    expect<void> wait(sockets& comm, short events, std::chrono::milliseconds timeout)
-    {
-        zmq_pollitem_t items[2]{
-            {comm.daemon.get(), -1, short(events | ZMQ_POLLERR), 0},
-            {comm.parent.get(), -1, short(ZMQ_POLLIN | ZMQ_POLLERR), 0}
-        };
-
-        for (;;)
-        {
-            const auto start = std::chrono::steady_clock::now();
-            const int ready = zmq_poll(items, 2, timeout.count());
-            const auto end = std::chrono::steady_clock::now();
-            const auto spent = std::chrono::duration_cast<std::chrono::milliseconds>(start - end);
-            timeout -= std::min(spent, timeout);
-
-            if (ready == 0)
-                return {lws::error::kDaemonConnectionFailure};
-            if (0 < ready)
-                break;
-            const int err = zmq_errno(); 
-            if (err != EINTR)
-                return {mzmq::error(err)};
-        }
-        if (items[1].revents)
-            return {lws::error::kAbortScan};
-        return success();
-    }
-
-    bool send(sockets& comm, std::string const& message)
-    {
-        std::chrono::milliseconds timeout = send_timeout;
-        while (zmq_send(comm.daemon.get(), message.data(), message.size(), ZMQ_DONTWAIT) < 0)
-        {
-            const int err = zmq_errno();
-            if (err == EINTR)
-                continue;
-            if (err != EAGAIN)
-                MONERO_THROW(mzmq::error(err), "ZMQ send failure");
-
-            const expect<void> ready = wait(comm, ZMQ_POLLOUT, send_timeout);
-            if (!ready)
-            {
-                if (ready == lws::error::kAbortScan)
-                    return false;
-                MONERO_THROW(ready.error(), "ZMQ send failure");
-            } 
-            timeout = std::chrono::seconds{0};
-        }
-        return true;
-    }
-
-    template<typename M>
-    expect<M> receive(sockets& comm, std::chrono::milliseconds timeout)
-    {
-        zmq_msg_t zmsg;
-        if (zmq_msg_init(std::addressof(zmsg)))
-            return {mzmq::error(zmq_errno())};
-
-        while (zmq_recvmsg(comm.daemon.get(), std::addressof(zmsg), ZMQ_DONTWAIT) < 0)
-        {
-            int err = zmq_errno();
-            if (err == EINTR)
-                continue;
-            if (err != EAGAIN)
-                return {mzmq::error(err)};
-
-            const expect<void> ready = wait(comm, ZMQ_POLLIN, timeout);
-            if (!ready)
-                return ready.error();
-            timeout = std::chrono::seconds{0};
-        }
-        return unpack_message<M>(zmsg);
-    }
-} // anonymous
-} // mzmq
 
 namespace lws
 {
@@ -267,6 +58,12 @@ namespace lws
 
     namespace
     {
+        constexpr const std::chrono::seconds account_poll_interval{10};
+        constexpr const std::chrono::seconds block_poll_interval{20};
+        constexpr const std::chrono::minutes block_rpc_timeout{2};
+        constexpr const std::chrono::seconds send_timeout{30};
+        constexpr const std::chrono::seconds sync_rpc_timeout{30};
+
         struct thread_sync
         {
             boost::mutex sync;
@@ -276,11 +73,11 @@ namespace lws
 
         struct thread_data
         {
-            explicit thread_data(mzmq::sockets comm, db::storage disk, std::vector<lws::account> users)
-              : comm(std::move(comm)), disk(std::move(disk)), users(std::move(users))
+            explicit thread_data(rpc::client client, db::storage disk, std::vector<lws::account> users)
+              : client(std::move(client)), disk(std::move(disk)), users(std::move(users))
             {}
 
-            mzmq::sockets comm;
+            rpc::client client;
             db::storage disk;
             std::vector<lws::account> users;
         };
@@ -292,6 +89,18 @@ namespace lws
             const auto start = std::chrono::steady_clock::now();
             while (scanner::is_running() && (std::chrono::steady_clock::now() - start) < wait)
                 boost::this_thread::sleep_for(boost::chrono::milliseconds{sleep_time.count()});
+        }
+
+        bool send(rpc::client& client, std::string const& message)
+        {
+            const expect<void> sent = client.send(message, send_timeout);
+            if (!sent)
+            {
+                if (sent.matches(std::errc::interrupted))
+                    return false;
+                MONERO_THROW(sent.error(), "Failed to send ZMQ RPC message");
+            }
+            return true;
         }
 
         struct by_height
@@ -454,11 +263,11 @@ namespace lws
         void scan_loop(thread_sync& self, std::shared_ptr<thread_data> data) noexcept
         {
             using rpc_command = cryptonote::rpc::GetBlocksFast;
-            
+
             try
             {
                 // boost::thread doesn't support move-only types + attributes
-                mzmq::sockets comm{std::move(data->comm)};
+                rpc::client client{std::move(data->client)};
                 db::storage disk{std::move(data->disk)};
                 std::vector<lws::account> users{std::move(data->users)};
 
@@ -484,8 +293,8 @@ namespace lws
                 req.start_height = std::max(std::uint64_t(1), req.start_height);
                 req.prune = false;
 
-                std::string block_request = mzmq::make_message(rpc_command::name, req);
-                if (!mzmq::send(comm, block_request))
+                std::string block_request = rpc::client::make_message(rpc_command::name, req);
+                if (!send(client, block_request))
                     return;
 
                 std::vector<crypto::hash> blockchain{};
@@ -494,15 +303,15 @@ namespace lws
                 {
                     blockchain.clear();
 
-                    auto resp = mzmq::receive<rpc_command::Response>(comm, block_rpc_timeout);
+                    auto resp = client.receive<rpc_command::Response>(block_rpc_timeout);
                     if (!resp)
                     {
-                        if (resp == lws::error::kAbortScan)
-                            return;
-                        if (resp == lws::error::kDaemonConnectionFailure)
+                        if (resp.matches(std::errc::interrupted))
+                            return; // a signal was sent over ZMQ
+                        if (resp.matches(std::errc::timed_out))
                         {
                             MWARNING("Block retrieval timeout, retrying");
-                            if (!mzmq::send(comm, block_request))
+                            if (!send(client, block_request))
                                 return;
                             continue;
                         }
@@ -520,14 +329,14 @@ namespace lws
 
                     // retrieve next blocks in background
                     req.start_height = resp->start_height + resp->blocks.size() - 1;
-                    block_request = mzmq::make_message(rpc_command::name, req);
-                    if (!mzmq::send(comm, block_request))
+                    block_request = rpc::client::make_message(rpc_command::name, req);
+                    if (!send(client, block_request))
                         return;
 
                     if (resp->blocks.size() <= 1)
                     {
                         // ... how about some ZMQ push stuff? we can only dream ...
-                        if (mzmq::wait(comm, 0, block_poll_interval) == lws::error::kAbortScan)
+                        if (client.wait(block_poll_interval).matches(std::errc::interrupted))
                             return;
                         continue;
                     }
@@ -631,16 +440,10 @@ namespace lws
             Launches `thread_count` threads to run `scan_loop`, and then polls
             for active account changes in background
         */
-        void check_loop(db::storage const& disk, void* const ctx, std::string const& daemon_addr, std::size_t thread_count, std::vector<lws::account> users, std::vector<db::account_id> active)
+        void check_loop(db::storage disk, rpc::context& ctx, std::size_t thread_count, std::vector<lws::account> users, std::vector<db::account_id> active)
         {
             assert(0 < thread_count);
             assert(0 < users.size());
-
-            mzmq::socket pub{zmq_socket(ctx, ZMQ_PUB)};
-            if (pub == nullptr)
-                MONERO_THROW(mzmq::error(zmq_errno()), "Unable to create ZMQ PUB socket");
-            if (zmq_bind(pub.get(), stop_scan_endpoint))
-                MONERO_THROW(mzmq::error(zmq_errno()), "Unable to bind to ZMQ inproc");
 
             thread_sync self{};            
             std::vector<boost::thread> threads{};
@@ -649,16 +452,16 @@ namespace lws
             {
                 thread_sync& self;
                 std::vector<boost::thread>& threads;
-                mzmq::socket pub;
+                rpc::context& ctx;
 
                 ~join_() noexcept
                 {
                     self.update = true;
-                    zmq_send(pub.get(), "", 0, 0);
+                    ctx.raise_abort_scan();
                     for (auto& thread : threads)
                         thread.join();
                 }
-            } join{self, threads, std::move(pub)};
+            } join{self, threads, ctx};
 
             /*
                 The algorithm here is extremely basic. Users are divided evenly
@@ -695,16 +498,23 @@ namespace lws
                     std::make_move_iterator(users.end() - count), std::make_move_iterator(users.end())
                 };
                 users.erase(users.end() - count, users.end());
+
+                rpc::client client = MONERO_UNWRAP("Daemon connect", ctx.connect());
+                client.watch_scan_signals();
+
                 auto data = std::make_shared<thread_data>(
-                    mzmq::sockets::make(ctx, daemon_addr), disk.clone(), std::move(thread_users)
+                    std::move(client), disk.clone(), std::move(thread_users)
                 );
                 threads.emplace_back(attrs, std::bind(&scan_loop, std::ref(self), std::move(data)));
             }
 
             if (!users.empty())
             {
+                rpc::client client = MONERO_UNWRAP("Daemon connect", ctx.connect());
+                client.watch_scan_signals();
+
                 auto data = std::make_shared<thread_data>(
-                    mzmq::sockets::make(ctx, daemon_addr), disk.clone(), std::move(users)
+                    std::move(client), disk.clone(), std::move(users)
                 );
                 threads.emplace_back(attrs, std::bind(&scan_loop, std::ref(self), std::move(data)));
             }
@@ -719,7 +529,7 @@ namespace lws
             {
                 for (;;)
                 {
-                    // TODO use signalfd + ZMQ? Windows is the difficult case...
+                    //! \TODO use signalfd + ZMQ? Windows is the difficult case...
                     self.user_poll.wait_for(lock, boost::chrono::seconds{1});
                     if (self.update || !scanner::is_running())
                         return;
@@ -748,7 +558,7 @@ namespace lws
                 );
                 if (current_users.count() != active.size())
                 {
-                    MINFO("Change in active user accounts detected");
+                    MINFO("Change in active user accounts detected, stopping scan threads...");
                     return;
                 }
 
@@ -757,7 +567,7 @@ namespace lws
                     const db::account_id user_id = user.get_value<MONERO_FIELD(db::account, id)>();
                     if (!std::binary_search(active.begin(), active.end(), user_id))
                     {
-                        MINFO("Change in active user accounts detected");
+                        MINFO("Change in active user accounts detected, stopping scan threads...");
                         return;
                     }
                 }
@@ -766,124 +576,93 @@ namespace lws
                 accounts_cur = current_users.give_cursor();
             }
         }
+    } // anonymous
 
-        expect<void> sync_chain(db::storage& disk, void* daemon)
+    expect<rpc::client> scanner::sync(db::storage disk, rpc::client client)
+    {
+        using rpc_command = cryptonote::rpc::GetHashesFast;
+
+        MINFO("Starting blockchain sync with daemon");
+
+        rpc_command::Request req{};
+        req.start_height = 0;
         {
-            using rpc_command = cryptonote::rpc::GetHashesFast;
+            auto reader = disk.start_read();
+            if (!reader)
+                return reader.error();
 
-            MINFO("Starting blockchain sync with daemon");
+            auto chain = reader->get_chain_sync();
+            if (!chain)
+                return chain.error();
 
-            rpc_command::Request req{};
-            req.start_height = 0;
+            req.known_hashes = std::move(*chain);
+        }
+
+        for (;;)
+        {
+            if (req.known_hashes.empty())
+                return {lws::error::kBadBlockchain};
+
+            expect<void> sent{lws::error::kDaemonTimeout};
+
+            const std::string msg = rpc::client::make_message(rpc_command::name, req);
+            auto start = std::chrono::steady_clock::now();
+
+            while (!(sent = client.send(msg, std::chrono::seconds{1})))
             {
-                auto reader = disk.start_read();
-                if (!reader)
-                    return reader.error();
+                if (!scanner::is_running())
+                    return {lws::error::kSignalAbortProcess};
 
-                auto chain = reader->get_chain_sync();
-                if (!chain)
-                    return chain.error();
+                if (sync_rpc_timeout <= (std::chrono::steady_clock::now() - start))
+                    return {lws::error::kDaemonTimeout};
 
-                req.known_hashes = std::move(*chain);
+                if (!sent.matches(std::errc::timed_out))
+                    return sent.error();
             }
 
-            for (;;)
+            expect<rpc_command::Response> resp{lws::error::kDaemonTimeout};
+            start = std::chrono::steady_clock::now();
+
+            while (!(resp = client.receive<rpc_command::Response>(std::chrono::seconds{1})))
             {
-                if (req.known_hashes.empty())
-                    return {lws::error::kBadBlockchain};
+                if (!scanner::is_running())
+                    return {lws::error::kSignalAbortProcess};
 
-                const std::string msg = mzmq::make_message(rpc_command::name, req);
-                auto start = std::chrono::steady_clock::now();
-                while (zmq_send(daemon, msg.data(), msg.size(), ZMQ_DONTWAIT) < 0)
-                {
-                    if (!scanner::is_running())
-                        return {lws::error::kAbortScan};
+                if (sync_rpc_timeout <= (std::chrono::steady_clock::now() - start))
+                    return {lws::error::kDaemonTimeout};
 
-                    if (sync_rpc_timeout <= (std::chrono::steady_clock::now() - start))
-                        return {lws::error::kDaemonConnectionFailure};
-
-                    const int err = zmq_errno();
-                    if (err == EINTR)
-                        continue;
-                    else if (err != EAGAIN)
-                        return {mzmq::error(err)};
-
-                    boost::this_thread::sleep_for(boost::chrono::seconds{1});
-                }
-
-                zmq_msg_t zmsg;
-                if (zmq_msg_init(std::addressof(zmsg)))
-                    return {mzmq::error(zmq_errno())};
-
-                start = std::chrono::steady_clock::now();
-                while (zmq_recvmsg(daemon, std::addressof(zmsg), ZMQ_DONTWAIT) < 0)
-                {
-                    if (!scanner::is_running())
-                        return {lws::error::kAbortScan};
-
-                    if (sync_rpc_timeout <= (std::chrono::steady_clock::now() - start))
-                        return {lws::error::kDaemonConnectionFailure};
-
-                    const int err = zmq_errno();
-                    if (err == EINTR)
-                        continue;
-                    else if (err != EAGAIN)
-                        return {mzmq::error(err)};
-
-                    boost::this_thread::sleep_for(boost::chrono::seconds{1});
-                }
-
-                auto resp = mzmq::unpack_message<rpc_command::Response>(zmsg);
-                if (!resp)
+                if (!resp.matches(std::errc::timed_out))
                     return resp.error();
+            }
 
-                //
-                // Exit loop if it appears we have synced to top of chain
-                // 
-                if (resp->hashes.size() <= 1 || resp->hashes.back() == req.known_hashes.front())
-                    return success();
+            //
+            // Exit loop if it appears we have synced to top of chain
+            //
+            if (resp->hashes.size() <= 1 || resp->hashes.back() == req.known_hashes.front())
+                return client;
 
-                MONERO_CHECK(disk.sync_chain(db::block_id(resp->start_height), resp->hashes));
+            MONERO_CHECK(disk.sync_chain(db::block_id(resp->start_height), resp->hashes));
 
-                req.known_hashes.erase(req.known_hashes.begin(), --(req.known_hashes.end()));
-                const auto loc = req.known_hashes.begin();
-                for (std::size_t num = 0; num < 10; ++num)
-                {
-                    if (resp->hashes.empty())
-                        break;
-                    req.known_hashes.splice(
-                        loc, resp->hashes, --(resp->hashes.end()), resp->hashes.end()
-                    );
-                }
-            } 
+            req.known_hashes.erase(req.known_hashes.begin(), --(req.known_hashes.end()));
+            const auto loc = req.known_hashes.begin();
+            for (std::size_t num = 0; num < 10; ++num)
+            {
+                if (resp->hashes.empty())
+                    break;
+                req.known_hashes.splice(
+                    loc, resp->hashes, --(resp->hashes.end()), resp->hashes.end()
+                );
+            }
         }
-    } // anonymous
-    
-    scanner::scanner(db::storage disk_, std::string daemon_addr_)
-      : disk(std::move(disk_)), daemon_addr(std::move(daemon_addr_))
-    {
-        mzmq::context ctx{zmq_init(1)};
-        if (ctx == nullptr)
-            MONERO_THROW(mzmq::error(zmq_errno()), "ZMQ context initialization failure");
 
-        mzmq::socket daemon = mzmq::sockets::make_daemon_conn(ctx.get(), daemon_addr);
-        assert(daemon != nullptr);
-        MONERO_UNWRAP("Blockchain sync with daemon", sync_chain(disk, daemon.get()));
+        return client;
     }
 
-    scanner::~scanner() noexcept
-    {}
-
-    void scanner::fetch_loop(std::size_t thread_count)
+    void scanner::run(db::storage disk, rpc::context ctx, std::size_t thread_count)
     {
         thread_count = std::max(std::size_t(1), thread_count);
 
-        mzmq::context ctx{zmq_init(1)};
-        if (ctx == nullptr)
-            MONERO_THROW(mzmq::error(zmq_errno()), "ZMQ context initialization failure");
-
-        mzmq::socket daemon = nullptr;
-
+        rpc::client client{};
         for (;;)
         {
             std::vector<db::account_id> active;
@@ -923,23 +702,23 @@ namespace lws
                 checked_wait(account_poll_interval);
             }
             else
-                check_loop(disk, ctx.get(), daemon_addr, thread_count, std::move(users), std::move(active));
+                check_loop(disk.clone(), ctx, thread_count, std::move(users), std::move(active));
 
             if (!scanner::is_running())
                 return;
 
-            if (!daemon)
-                daemon = mzmq::sockets::make_daemon_conn(ctx.get(), daemon_addr);
+            if (!client)
+                client = MONERO_UNWRAP("Daemon connect", ctx.connect());
 
-            assert(daemon != nullptr);
-            const expect<void> synced = sync_chain(disk, daemon.get());
+            expect<rpc::client> synced = sync(disk.clone(), std::move(client));
             if (!synced)
             {
-                if (!synced.matches(std::errc::connection_refused))
+                if (!synced.matches(std::errc::timed_out))
                     MONERO_THROW(synced.error(), "Unable to sync blockchain");
 
-                MWARNING("Failed to connect to daemon at " << daemon_addr);
+                MWARNING("Failed to connect to daemon at " << ctx.daemon_address());
             }
+            client = std::move(*synced);
         }
     }
 } // lws

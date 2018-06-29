@@ -24,6 +24,7 @@
 #include "lmdb/util.h"
 #include "net/http_server_impl_base.h"
 #include "ringct/rctOps.h"
+#include "rpc/daemon_messages.h"
 #include "serialization/new/json_input.h"
 #include "serialization/new/json_output.h"
 
@@ -242,7 +243,7 @@ namespace lws
             return stream.str();
         } 
 
-        expect<std::string> get_address_info(rapidjson::Value const& root, db::storage disk, context& ctx)
+        expect<std::string> get_address_info(rapidjson::Value const& root, db::storage disk, rpc::client const&, context& ctx)
         {
             constexpr const auto response = json::object(
                 json::field("locked_funds", uint64_json_string),
@@ -299,7 +300,7 @@ namespace lws
             );
         }
 
-        expect<std::string> get_address_txs(rapidjson::Value const& root, db::storage disk, context& ctx)
+        expect<std::string> get_address_txs(rapidjson::Value const& root, db::storage disk, rpc::client const&, context& ctx)
         {
             struct transaction
             {
@@ -407,7 +408,7 @@ namespace lws
             );
         }
 
-        expect<std::string> get_unspent_outs(rapidjson::Value const& root, db::storage disk, context& ctx)
+        expect<std::string> get_unspent_outs(rapidjson::Value const& root, db::storage disk, rpc::client const& gclient, context& ctx)
         {
             struct output_json
             {
@@ -486,6 +487,18 @@ namespace lws
                 json::optional_field("use_dust", json::boolean),
                 json::optional_field("dust_threshold", uint64_json_string)
             );
+
+            expect<rpc::client> client = gclient.clone();
+            if (!client)
+                return client.error();
+
+            using rpc_command = cryptonote::rpc::GetPerKBFeeEstimate;
+            {
+                rpc_command::Request req{};
+                req.num_grace_blocks = 10;
+                const std::string msg = rpc::client::make_message(rpc_command::name, req);
+                MONERO_CHECK(client->send(msg, std::chrono::seconds{10}));
+            }
             
             db::account_address address{};
             std::uint64_t amount = 0;
@@ -546,6 +559,9 @@ namespace lws
                 return {lws::error::kNoSuchAccount};
 
             reader->finish_read();
+            const auto resp = client->receive<rpc_command::Response>(std::chrono::seconds{20});
+            if (!resp)
+                return resp.error();
 
             const auto response = json::object(
                 json::field("per_kb_fee", json::uint64),
@@ -553,10 +569,10 @@ namespace lws
                 json::field("outputs", json::array(output_json{user->second.address.spend_public, key}))
             );
 
-            return generate_body(response, std::uint64_t(0), received, unspent);
+            return generate_body(response, resp->estimated_fee_per_kb, received, unspent);
         }
 
-        expect<std::string> login(rapidjson::Value const& root, db::storage disk, context& ctx)
+        expect<std::string> login(rapidjson::Value const& root, db::storage disk, rpc::client const&, context& ctx)
         {
             static constexpr const auto request = json::object(
                 json::field("address", address_json),
@@ -602,7 +618,8 @@ namespace lws
         struct endpoint
         {
             char const* const name;
-            expect<std::string> (*const run)(rapidjson::Value const&, db::storage, context&);
+            expect<std::string>
+                (*const run)(rapidjson::Value const&, db::storage, rpc::client const&, context&);
         };
 
         constexpr const endpoint endpoints[] = {
@@ -639,11 +656,14 @@ namespace lws
 class rest_server::internal : public epee::http_server_impl_base<rest_server::internal, context>
 {
     db::storage disk;
+    rpc::client client;
 
 public:
 
-    explicit internal(lws::db::storage disk)
-      : epee::http_server_impl_base<rest_server::internal, context>(), disk(std::move(disk))
+    explicit internal(lws::db::storage disk, rpc::client client)
+      : epee::http_server_impl_base<rest_server::internal, context>()
+      , disk(std::move(disk))
+      , client(std::move(client))
     {
         assert(std::is_sorted(std::begin(endpoints), std::end(endpoints), by_name));
     }
@@ -660,7 +680,7 @@ public:
             rapidjson::Document doc{};
             if (rapidjson::ParseResult(doc.Parse(query.m_body.c_str())))
             {
-                auto body = handler->run(doc, disk.clone(), ctx);
+                auto body = handler->run(doc, disk.clone(), client, ctx);
                 if (body)
                 {
                     response.m_response_code = 200;
@@ -687,8 +707,8 @@ public:
     }
 };
 
-rest_server::rest_server(db::storage disk)
-  : impl(new internal(std::move(disk)))
+rest_server::rest_server(db::storage disk, rpc::client client)
+  : impl(new internal(std::move(disk), std::move(client)))
 {}
 
 rest_server::~rest_server()
