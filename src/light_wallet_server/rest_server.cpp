@@ -27,6 +27,7 @@
 #include "rpc/daemon_messages.h"
 #include "serialization/new/json_input.h"
 #include "serialization/new/json_output.h"
+#include "string_tools.h"
 
 namespace lws
 {
@@ -408,6 +409,115 @@ namespace lws
             );
         }
 
+        expect<std::string> get_random_outs(rapidjson::Value const& root, db::storage, rpc::client const& gclient, context& ctx)
+        {
+            struct by_key
+            {
+                using value_type = cryptonote::rpc::output_key_mask_unlocked;
+
+                bool operator()(value_type const& left, value_type const& right) const noexcept
+                {
+                    return (*this)(left.key, right.key);
+                }
+                bool operator()(value_type const& left, crypto::public_key const& right) const noexcept
+                {
+                    return (*this)(left.key, right);
+                }
+                bool operator()(crypto::public_key const& left, value_type const& right) const noexcept
+                {
+                    return (*this)(left, right.key);
+                }
+                bool operator()(crypto::public_key const& left, crypto::public_key const& right) const noexcept
+                {
+                    return std::memcmp(std::addressof(left), std::addressof(right), sizeof(left)) < 0;
+                }
+            };
+
+            struct random_output_json
+            {
+                std::vector<cryptonote::rpc::output_key_mask_unlocked> const& keys;
+
+                expect<void>
+                operator()(std::ostream& dest, cryptonote::rpc::output_key_and_amount_index const& src) const
+                {
+                    static constexpr const auto fmt = json::object(
+                        json::field("global_index", uint64_json_string),
+                        json::field("public_key", json::hex_string),
+                        json::field("rct", json::hex_string)
+                    );
+                    const auto found = std::lower_bound(keys.begin(), keys.end(), src.key, by_key{});
+                    if (found == keys.end() || found->key != src.key)
+                        return {lws::error::kBadDaemonResponse};
+
+                    return fmt(dest, src.amount_index, src.key, found->mask);
+                }
+            };
+
+            struct random_outputs_json
+            {
+                std::vector<cryptonote::rpc::output_key_mask_unlocked> const& keys;
+
+                expect<void>
+                operator()(std::ostream& dest, cryptonote::rpc::amount_with_random_outputs const& src) const
+                {
+                    const auto fmt = json::object(
+                        json::field("amount", uint64_json_string),
+                        json::field("outputs", json::array(random_output_json{keys}))
+                    );
+                    return fmt(dest, src.amount, src.outputs);
+                }
+            };
+
+            static constexpr const auto request = json::object(
+                json::field("count", json::uint64), // rpc to daemon is 64-bit :/
+                json::field("amounts", json::array(uint64_json_string))
+            );
+
+            if (!ctx.logged_in)
+                return {lws::error::kNoSuchAccount};
+
+            using get_random_rpc = cryptonote::rpc::GetRandomOutputsForAmounts;
+            using get_keys_rpc = cryptonote::rpc::GetOutputKeys;
+
+            // the requst cannot be "replayed", client is sending uint64-as-string.
+            get_random_rpc::Request random_req{};
+            MONERO_CHECK(request(root, random_req.count, random_req.amounts));
+
+            if (50 < random_req.count || 10 < random_req.amounts.size())
+                return {lws::error::kExceededRestRequestLimit};
+
+            expect<rpc::client> client = gclient.clone();
+            if (!client)
+                return client.error();
+
+            std::string msg = rpc::client::make_message(get_random_rpc::name, random_req);
+            MONERO_CHECK(client->send(msg, std::chrono::seconds{10}));
+
+            auto random_resp = client->receive<get_random_rpc::Response>(std::chrono::minutes{2});
+            if (!random_resp)
+                return random_resp.error();
+
+            get_keys_rpc::Request keys_req{};
+
+            keys_req.outputs.reserve(random_req.count * random_req.amounts.size());
+            for (auto const& amount : random_resp->amounts_with_outputs)
+                for (auto const& output : amount.outputs)
+                    keys_req.outputs.push_back({amount.amount, output.amount_index});
+
+            msg = rpc::client::make_message(get_keys_rpc::name, keys_req);
+            MONERO_CHECK(client->send(msg, std::chrono::seconds{10}));
+
+            auto keys_resp = client->receive<get_keys_rpc::Response>(std::chrono::seconds{30});
+            if (!keys_resp)
+                return keys_resp.error();
+
+            std::sort(keys_resp->keys.begin(), keys_resp->keys.end(), by_key{});
+            const auto response = json::object(
+                json::field("amount_outs", json::array(random_outputs_json{keys_resp->keys}))
+            );
+            return generate_body(response, random_resp->amounts_with_outputs);
+        }
+
         expect<std::string> get_unspent_outs(rapidjson::Value const& root, db::storage disk, rpc::client const& gclient, context& ctx)
         {
             struct output_json
@@ -615,18 +725,65 @@ namespace lws
             return generate_body(response, true);
         }
 
+        expect<std::string> submit_raw_tx(rapidjson::Value const& root, db::storage, rpc::client const& gclient, context& ctx)
+        {
+            constexpr const auto request = json::object(json::field("tx", json::string));
+            constexpr const auto response =
+                json::object(json::field("status", json::string));
+
+            if (!ctx.logged_in)
+                return {lws::error::kNoSuchAccount};
+
+            using transaction_rpc = cryptonote::rpc::SendRawTx;
+
+            expect<rpc::client> client = gclient.clone();
+            if (!client)
+                return client.error();
+
+            std::string hex{};
+            MONERO_CHECK(request(root, hex));
+
+            std::string blob{};
+            if (!epee::string_tools::parse_hexstr_to_binbuff(hex, blob))
+                return {json::error::kInvalidHex};
+
+            transaction_rpc::Request req{};
+            req.relay = true;
+            if (!cryptonote::parse_and_validate_tx_from_blob(blob, req.tx))
+                return {lws::error::kBadClientTx};
+
+            const std::string message = rpc::client::make_message(transaction_rpc::name, req);
+            MONERO_CHECK(client->send(message, std::chrono::seconds{10}));
+
+            const auto resp = client->receive<transaction_rpc::Response>(std::chrono::seconds{20});
+            if (!resp)
+                return resp.error();
+            if (!resp->relayed)
+                return {lws::error::kTxRelayFailed};
+
+            return generate_body(response, "OK");
+        }
+
         struct endpoint
         {
             char const* const name;
             expect<std::string>
                 (*const run)(rapidjson::Value const&, db::storage, rpc::client const&, context&);
+            unsigned max_size;
+            const bool requires_post;
         };
 
         constexpr const endpoint endpoints[] = {
-            {"/get_address_info", &get_address_info},
-            {"/get_address_txs",  &get_address_txs},
-            {"/get_unspent_outs", &get_unspent_outs},
-            {"/login",            &login}
+            {"/get_address_info", &get_address_info, 2 * 1024,  true},
+            {"/get_address_txs",  &get_address_txs,  2 * 1024,  true},
+            {"/get_random_outs",  &get_random_outs,  2 * 1024,  true},
+            {"/get_txt_records",  nullptr,           0,         true},
+            {"/get_unspent_outs", &get_unspent_outs, 2 * 1024,  true},
+            {"/import_request",   nullptr,           0,         true},
+            {"/last_blocks",      nullptr,           0,         false},
+            {"/last_txs",         nullptr,           0,         false},
+            {"/login",            &login,            2 * 1024,  true},
+            {"/submit_raw_tx",    &submit_raw_tx,    20 * 1024, true}
         };
 
         struct by_name_
@@ -675,34 +832,79 @@ public:
         const auto handler = std::lower_bound(
             std::begin(endpoints), std::end(endpoints), query.m_URI, by_name
         );
-        if (handler != std::end(endpoints) && handler->name == query.m_URI)
+        if (handler == std::end(endpoints) || handler->name != query.m_URI)
         {
-            rapidjson::Document doc{};
-            if (rapidjson::ParseResult(doc.Parse(query.m_body.c_str())))
-            {
-                auto body = handler->run(doc, disk.clone(), client, ctx);
-                if (body)
-                {
-                    response.m_response_code = 200;
-                    response.m_response_comment = "Ok";
-                    response.m_mime_tipe = "application/json";
-                    response.m_header_info.m_content_type = "application/json";
-                    response.m_body = std::move(*body);
-                    return true;
-                }
+            response.m_response_code = 404;
+            response.m_response_comment = "Not Found";
+            return true;
+        }
 
-                MINFO(body.error().message() << " from " << ctx.m_remote_address.str() << " on " << handler->name);
-            }
-            else
-                MDEBUG("JSON Parsing error from " << ctx.m_remote_address.str());
+        if (handler->run == nullptr)
+        {
+            response.m_response_code = 501;
+            response.m_response_comment = "Not Implemented";
+            return true;
+        }
 
-            response.m_response_code = 500;
-            response.m_response_comment = "Internal Server Error";
+        if (handler->max_size < query.m_body.size())
+        {
+            MINFO("Client exceeded maximum body size (" << handler->max_size << " bytes)");
+            response.m_response_code = 400;
+            response.m_response_comment = "Bad Request";
+            return true;
+        }
+
+        const bool need_post =
+            handler->requires_post && query.m_http_method != http::http_method_post;
+        const bool need_get =
+            !handler->requires_post &&
+            query.m_http_method != http::http_method_get &&
+            query.m_http_method != http::http_method_head;
+
+        if (need_post || need_get)
+        {
+            response.m_response_code = 405;
+            response.m_response_comment = "Method Not Allowed";
+            return true;
+        }
+
+        rapidjson::Document doc{};
+        if (!rapidjson::ParseResult(doc.Parse(query.m_body.c_str())))
+        {
+            MINFO("JSON Parsing error from " << ctx.m_remote_address.str());
+            response.m_response_code = 400;
+            response.m_response_comment = "Bad Request";
             return true; 
         }
 
-        response.m_response_code = 404;
-        response.m_response_comment = "Not found"; 
+        auto body = handler->run(doc, disk.clone(), client, ctx);
+        if (!body)
+        {
+            MINFO(body.error().message() << " from " << ctx.m_remote_address.str() << " on " << handler->name);
+
+            if (body == lws::error::kNoSuchAccount)
+            {
+                response.m_response_code = 403;
+                response.m_response_comment = "Forbidden";
+            }
+            else if (body.matches(std::errc::timed_out) || body.matches(std::errc::no_lock_available))
+            {
+                response.m_response_code = 503;
+                response.m_response_comment = "Service Unavailable";
+            }
+            else
+            {
+                response.m_response_code = 500;
+                response.m_response_comment = "Internal Server Error";
+            }
+            return true;
+        }
+
+        response.m_response_code = 200;
+        response.m_response_comment = "Ok";
+        response.m_mime_tipe = "application/json";
+        response.m_header_info.m_content_type = "application/json";
+        response.m_body = std::move(*body);
         return true;
     }
 };

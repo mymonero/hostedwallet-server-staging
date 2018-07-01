@@ -47,6 +47,10 @@ namespace lws
                     return "Address/viewkey mismatch";
                 case error::kBadBlockchain:
                     return "Unable to sync blockchain - wrong --network ?";
+                case error::kBadClientTx:
+                    return "Received invalid transaction from REST client";
+                case error::kBadDaemonResponse:
+                    return "Response from monerod daemon was bad/unexpected";
                 case error::kBlockchainReorg:
                     return "A blockchain reorg has been detected";
                 case error::kCreateQueueMax:
@@ -57,6 +61,8 @@ namespace lws
                     return "A request of this type for this address has already been made";
                 case error::kExceededBlockchainBuffer:
                     return "Exceeded internal buffer for blockchain hashes";
+                case error::kExceededRestRequestLimit:
+                    return "Request from client via REST exceeded enforced limits";
                 case error::kNoSuchAccount:
                     return "No account with the specified address exists";
                 case error::kSignalAbortProcess:
@@ -67,6 +73,8 @@ namespace lws
                     return "An unknown in-process message was received";
                 case error::kSystemClockInvalidRange:
                     return "System clock is out of range for account storage format";
+                case error::kTxRelayFailed:
+                    return "The daemon failed to relay transaction from REST client";
                 default:
                     break;
             }

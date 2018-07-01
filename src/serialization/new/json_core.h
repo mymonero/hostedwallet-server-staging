@@ -109,11 +109,7 @@ namespace json
         //! Store a non-owning pointer to the string owned by `src`.
         expect<void> operator()(rapidjson::Value const& src, boost::string_ref&) const;
 
-        expect<void> operator()(std::ostream&, epee::span<const char>) const;
-        expect<void> operator()(std::ostream& dest, boost::string_ref src) const
-        {
-            return (*this)(dest, epee::to_span(src));
-        }
+        expect<void> operator()(std::ostream&, boost::string_ref src) const;
     };
     constexpr const string_ string {};
 

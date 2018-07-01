@@ -79,7 +79,7 @@ namespace json
         dest.assign(src.GetString(), src.GetStringLength());
         return success();
     } 
-    expect<void> string_::operator()(std::ostream& dest, const epee::span<const char> src) const
+    expect<void> string_::operator()(std::ostream& dest, const boost::string_ref src) const
     {
         dest << '"';
         dest.write(src.data(), src.size());

@@ -38,16 +38,20 @@ namespace lws
         kBadAddress,              //!< Invalid base58 public address
         kBadViewKey,              //!< Account has address/viewkey mismatch
         kBadBlockchain,           //!< Blockchain is invalid or wrong network type
+        kBadClientTx,             //!< REST client submitted invalid transaction
+        kBadDaemonResponse,       //!< RPC Response from daemon was invalid
         kBlockchainReorg,         //!< Blockchain reorg after fetching/scanning block(s)
         kCreateQueueMax,          //!< Reached maximum pending account requests
         kDaemonTimeout,           //!< ZMQ send/receive timeout
         kDuplicateRequest,        //!< Account already has a request of  this type pending
         kExceededBlockchainBuffer,//!< Out buffer for blockchain is too small
+        kExceededRestRequestLimit,//!< Exceeded enforced size limits for request
         kNoSuchAccount,           //!< Account address is not in database.
         kSignalAbortProcess,      //!< In process ZMQ PUB to abort the process was received
         kSignalAbortScan,         //!< In process ZMQ PUB to abort the scan was received
         kSignalUnknown,           //!< An unknown in process ZMQ PUB was received
-        kSystemClockInvalidRange  //!< System clock is out of range for storage format
+        kSystemClockInvalidRange, //!< System clock is out of range for storage format
+        kTxRelayFailed            //!< Daemon failed to relayed tx from REST client
     };
 
     std::error_category const& error_category() noexcept;
