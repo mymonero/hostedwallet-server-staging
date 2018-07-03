@@ -164,6 +164,7 @@ namespace json
             ::json::field("tx_hash", ::json::hex_string),
             ::json::field("tx_prefix_hash", ::json::hex_string),
             ::json::field("tx_public", ::json::hex_string),
+            ::json::optional_field("rct_mask", ::json::hex_string),
             ::json::optional_field("payment_id", ::json::hex_string),
             ::json::field("unlock_time", ::json::uint64),
             ::json::field("mixin_count", ::json::uint32),
@@ -173,13 +174,20 @@ namespace json
         const std::pair<db::extra, std::uint8_t> unpacked =
             db::unpack(src.extra);
 
+        const bool coinbase =
+            (lmdb::to_native(unpacked.first) & lmdb::to_native(db::extra::kCoinbase));
+        const bool rct =
+            (lmdb::to_native(unpacked.first) & lmdb::to_native(db::extra::kRingct));
+
+        const auto rct_mask = rct ? std::addressof(src.ringct.mask) : nullptr;
+
         epee::span<const std::uint8_t> payment_bytes{};
         if (unpacked.second == 32)
             payment_bytes = epee::as_byte_span(src.payment_id.long_);
         else if (unpacked.second == 8)
             payment_bytes = epee::as_byte_span(src.payment_id.short_);
 
-        auto payment_id = payment_bytes.empty() ?
+        const auto payment_id = payment_bytes.empty() ?
             nullptr : std::addressof(payment_bytes);
 
         return fmt(
@@ -192,10 +200,11 @@ namespace json
             src.tx_hash,
             src.tx_prefix_hash,
             src.tx_public,
+            rct_mask,
             payment_id,
             src.unlock_time,
             src.mixin_count,
-            unpacked.first == db::extra::kCoinbase
+            coinbase
         );
     }
 
