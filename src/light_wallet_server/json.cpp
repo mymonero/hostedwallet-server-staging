@@ -85,14 +85,43 @@ namespace json
             return fmt(std::forward<S>(stream), value.id, value.hash);
         }
 
+        template<typename S, typename T1, typename T2>
+        expect<void> spend_format(S&& stream, T1& value, T2& payment_id)
+        {
+            static constexpr const auto fmt = ::json::object(
+                ::json::field("height", ::json::uint64),
+                ::json::field("tx_hash", ::json::hex_string),
+                ::json::field("key_image", ::json::hex_string),
+                ::json::field("output_id", ::json::uint64),
+                ::json::field("timestamp", ::json::uint64),
+                ::json::field("unlock_time", ::json::uint64),
+                ::json::field("mixin_count", ::json::uint32),
+                ::json::optional_field("payment_id", ::json::hex_string)
+            );
+            return fmt(
+                std::forward<S>(stream),
+                value.link.height,
+                value.link.tx_hash,
+                value.image,
+                value.source,
+                value.timestamp,
+                value.unlock_time,
+                value.mixin_count,
+                payment_id
+            );
+        }
+
         template<typename S, typename T>
-        expect<void> spend_format(S&& stream, T& value)
+        expect<void> image_format(S&& stream, T& value)
         {
             static constexpr const auto fmt = ::json::object(
                 ::json::field("key_image", ::json::hex_string),
-                ::json::field("mixin_count", ::json::uint32)
+                ::json::field("tx_hash", ::json::hex_string),
+                ::json::field("height", ::json::uint64)
             );
-            return fmt(std::forward<S>(stream), value.image, value.mixin_count);
+            return fmt(
+                std::forward<S>(stream), value.value, value.link.tx_hash, value.link.height
+            );
         }
 
         template<typename S, typename T1, typename T2>
@@ -179,7 +208,7 @@ namespace json
         const bool rct =
             (lmdb::to_native(unpacked.first) & lmdb::to_native(db::extra::kRingct));
 
-        const auto rct_mask = rct ? std::addressof(src.ringct.mask) : nullptr;
+        const auto rct_mask = rct ? std::addressof(src.ringct_mask) : nullptr;
 
         epee::span<const std::uint8_t> payment_bytes{};
         if (unpacked.second == 32)
@@ -192,29 +221,52 @@ namespace json
 
         return fmt(
             dest,
-            src.id,
-            src.height,
-            src.index,
-            src.amount,
+            src.spend_meta.id,
+            src.link.height,
+            src.spend_meta.index,
+            src.spend_meta.amount,
             src.timestamp,
-            src.tx_hash,
+            src.link.tx_hash,
             src.tx_prefix_hash,
-            src.tx_public,
+            src.spend_meta.tx_public,
             rct_mask,
             payment_id,
             src.unlock_time,
-            src.mixin_count,
+            src.spend_meta.mixin_count,
             coinbase
         );
     }
 
     expect<void> spend_::operator()(rapidjson::Value const& src, db::spend& dest) const
     {
-        return spend_format(src, dest);
+        boost::optional<crypto::hash> payment_id;
+        MONERO_CHECK(spend_format(src, dest, payment_id));
+
+        if (payment_id)
+        {
+            dest.length = sizeof(dest.payment_id);
+            dest.payment_id = std::move(*payment_id);
+        }
+        else
+            dest.length = 0;
+
+        return success();
     }
     expect<void> spend_::operator()(std::ostream& dest, db::spend const& src) const
     {
-        return spend_format(dest, src);
+        crypto::hash const* const payment_id =
+            (src.length == sizeof(src.payment_id) ? std::addressof(src.payment_id) : nullptr);
+
+        return spend_format(dest, src, payment_id);
+    }
+
+    expect<void> key_image_::operator()(rapidjson::Value const& src, db::key_image& dest) const
+    {
+        return image_format(src, dest);
+    }
+    expect<void> key_image_::operator()(std::ostream& dest, db::key_image const& src) const
+    {
+        return image_format(dest, src);
     }
 
     expect<void> request_info_::operator()(rapidjson::Value const& src, db::request_info& dest) const

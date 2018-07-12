@@ -126,24 +126,36 @@ namespace lws
             epee::span<lws::account> users,
             const db::block_id height,
             const std::uint64_t timestamp,
-            boost::optional<crypto::hash> tx_hash,
+            crypto::hash const& tx_hash,
             cryptonote::transaction const& tx,
             std::vector<std::uint64_t> const& out_ids)
         {
             if (2 < tx.version)
                 throw std::runtime_error{"Unsupported tx version"};
 
-            std::vector<cryptonote::tx_extra_field> extra;
             cryptonote::tx_extra_pub_key key;
-
             boost::optional<crypto::hash> prefix_hash;
-            boost::optional<std::pair<std::uint8_t, db::output::payment_id_>> payment_id; 
+            boost::optional<cryptonote::tx_extra_nonce> extra_nonce;
+            std::pair<std::uint8_t, db::output::payment_id_> payment_id;
 
-            cryptonote::parse_tx_extra(tx.extra, extra);
-            // allow partial parsing of tx extra (similar to wallet2.cpp)
+            {
+                std::vector<cryptonote::tx_extra_field> extra;
+                cryptonote::parse_tx_extra(tx.extra, extra);
+                // allow partial parsing of tx extra (similar to wallet2.cpp)
 
-            if (!cryptonote::find_tx_extra_field_by_type(extra, key))
-                return;
+                if (!cryptonote::find_tx_extra_field_by_type(extra, key))
+                    return;
+
+                extra_nonce.emplace();
+                if (cryptonote::find_tx_extra_field_by_type(extra, *extra_nonce))
+                {
+                    using namespace cryptonote;
+                    if (get_payment_id_from_tx_extra_nonce(extra_nonce->nonce, payment_id.second.long_))
+                        payment_id.first = sizeof(crypto::hash);
+                }
+                else
+                    extra_nonce = boost::none;
+            } // destruct extra vector
 
             for (account& user : users)
             {
@@ -154,20 +166,43 @@ namespace lws
                 if (!crypto::generate_key_derivation(key.pub_key, user.view_key(), derived))
                     throw std::runtime_error{"Key derivation failed"};
 
-                std::size_t ring_size = 0;
+                db::extra ext = db::extra::kNone;
+                std::uint32_t mixin = 0;
                 for (auto const& in : tx.vin)
                 {
                     cryptonote::txin_to_key const* const in_data =
                         boost::get<cryptonote::txin_to_key>(std::addressof(in));
                     if (in_data)
                     {
-                        ring_size = in_data->key_offsets.size();
-                        user.check_spends(in_data->k_image, epee::to_span(in_data->key_offsets));
-                    }
-                }
+                        mixin = boost::numeric_cast<std::uint32_t>(
+                            std::max(std::size_t(1), in_data->key_offsets.size()) - 1
+                        );
 
-                db::extra ext = (ring_size == 0) ?
-                    db::extra::kCoinbase : db::extra::kNone;
+                        std::uint64_t goffset = 0;
+                        for (std::uint64_t offset : in_data->key_offsets)
+                        {
+                            goffset += offset;
+                            if (user.has_spendable(db::output_id(goffset)))
+                            {
+                                user.add_spend(
+                                    db::spend{
+                                        db::transaction_link{height, tx_hash},
+                                        in_data->k_image,
+                                        db::output_id(goffset),
+                                        timestamp,
+                                        tx.unlock_time,
+                                        mixin,
+                                        0, 0, 0, // reserved
+                                        payment_id.first,
+                                        payment_id.second.long_
+                                    }
+                                );
+                            }
+                        }
+                    }
+                    else if (boost::get<cryptonote::txin_gen>(std::addressof(in)))
+                        ext = db::extra::kCoinbase;
+                }
 
                 std::size_t index = -1;
                 for (auto const& out : tx.vout)
@@ -193,16 +228,6 @@ namespace lws
                         cryptonote::get_transaction_prefix_hash(tx, *prefix_hash);
                     }
 
-                    if (!tx_hash)
-                    {
-                        tx_hash.emplace();
-                        if (!cryptonote::get_transaction_hash(tx, *tx_hash))
-                        {
-                            MWARNING("Failed to get transaction hash, skipping tx");
-                            continue; // to next output
-                        }
-                    }
-
                     std::uint64_t amount = out.amount;
                     rct::key mask{};
                     if (!amount)
@@ -212,7 +237,7 @@ namespace lws
                         );
                         if (!decrypted)
                         {
-                            MWARNING(user.address() << " failed to decrypt amount for tx " << *tx_hash << ", skipping output");
+                            MWARNING(user.address() << " failed to decrypt amount for tx " << tx_hash << ", skipping output");
                             continue; // to next output
                         }
                         amount = decrypted->first;
@@ -220,40 +245,31 @@ namespace lws
                         ext = db::extra(lmdb::to_native(ext) | lmdb::to_native(db::extra::kRingct));
                     }
 
-                    if (!payment_id)
+                    if (extra_nonce)
                     {
                         using namespace cryptonote;
-
-                        payment_id.emplace();
-                        tx_extra_nonce extra_nonce;
-                        if (find_tx_extra_field_by_type(extra, extra_nonce))
-                        {
-                            if (get_payment_id_from_tx_extra_nonce(extra_nonce.nonce, payment_id->second.long_))
-                                payment_id->first = sizeof(crypto::hash);
-                            else if (get_encrypted_payment_id_from_tx_extra_nonce(extra_nonce.nonce, payment_id->second.short_))
-                                payment_id->first = sizeof(crypto::hash8);
-                        }
+                        if (!payment_id.first && get_encrypted_payment_id_from_tx_extra_nonce(extra_nonce->nonce, payment_id.second.short_))
+                            payment_id.first = sizeof(crypto::hash8);
                     }
 
-                    db::output::payment_id_ user_pid = payment_id->second;
-
-                    MDEBUG("Found match for " << user.address() << " on tx " << *tx_hash << " for " << money{amount} << " XMR");
+                    MDEBUG("Found match for " << user.address() << " on tx " << tx_hash << " for " << money{amount} << " XMR");
                     user.add_out(
                         db::output{
-                            height,
-                            db::output_id(out_ids.at(index)),
-                            amount,
+                            db::transaction_link{height, tx_hash},
+                            db::output::spend_meta_{
+                                db::output_id(out_ids.at(index)),
+                                amount,
+                                mixin,
+                                boost::numeric_cast<std::uint32_t>(index),
+                                key.pub_key
+                            },
                             timestamp,
                             tx.unlock_time,
-                            boost::numeric_cast<std::uint32_t>(std::max(std::size_t(1), ring_size) - 1),
-                            boost::numeric_cast<std::uint32_t>(index),
-                            *tx_hash,
                             *prefix_hash,
-                            key.pub_key,
                             mask,
                             0, 0, 0, 0, 0, 0, 0, // reserved bytes
-                            db::pack(ext, payment_id->first),
-                            user_pid
+                            db::pack(ext, payment_id.first),
+                            payment_id.second
                         }
                     );
                 } // for all tx outs
@@ -376,7 +392,7 @@ namespace lws
                             epee::to_mut_span(users),
                             db::block_id(resp->start_height),
                             block.timestamp,
-                            boost::none,
+                            crypto::hash{},
                             block.miner_tx,
                             *(indices.begin())
                         );
@@ -683,7 +699,7 @@ namespace lws
                     auto receive_list = MONERO_UNWRAP(
                         "User receive list", reader.get_outputs(user.id)
                     );
-                    auto id_range = receive_list.make_range<MONERO_FIELD(db::output, id)>();
+                    auto id_range = receive_list.make_range<MONERO_FIELD(db::output, spend_meta.id)>();
                     std::copy(
                         id_range.begin(), id_range.end(), std::back_inserter(receives)
                     );

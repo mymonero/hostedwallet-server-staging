@@ -43,10 +43,12 @@ namespace db
     struct account;
     struct account_address;
     struct block_info;
+    struct key_image;
     struct output;
+    struct request_info;
     struct spend;
     class storage;
-    struct request_info;
+    struct transaction_link;
     struct view_key;
 } // db
 } // lws

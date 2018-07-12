@@ -79,10 +79,11 @@ namespace db
         (UB to copy over entire struct). LMDB is keeping a copy in process
         memory anyway (row encryption not currently used). The roadmap
         recommends process isolation per-connection by default as a defense
-        against obtaining someone elses viewkey.
+        against viewkey leaks due to bug.
     */
     struct view_key : crypto::ec_scalar {};
 
+    //! The public keys of a monero address
     struct account_address
     {
         crypto::public_key spend_public;
@@ -110,6 +111,14 @@ namespace db
     };
     static_assert(sizeof(block_info) == 8 + 32, "padding in block_info");
 
+    //! `output`s and `spend`s are sorted by these fields to make merging easier.
+    struct transaction_link
+    {
+        block_id height;      //! Block height containing transaction
+        crypto::hash tx_hash; //! Hash of the transaction
+    };
+
+    //! Additional flags stored in `output`s.
     enum class extra : std::uint8_t
     {
         kNone = 0,
@@ -118,56 +127,79 @@ namespace db
         kCoinbaseAndRingct = 3
     };
 
+    //! Packed information stored in `output`s.
     enum class extra_and_length : std::uint8_t {};
 
     //! \return `val` and `length` packed into a single byte.
     inline extra_and_length pack(extra val, std::uint8_t length) noexcept
     {
         assert(length <= 32);
-        return extra_and_length((std::uint8_t(val) & 0x7) | (length << 3));
+        return extra_and_length((std::uint8_t(val) << 6) | (length & 0x3f));
     }
 
     //! \return `extra` and length unpacked from a single byte.
     inline std::pair<extra, std::uint8_t> unpack(extra_and_length val) noexcept
     {
         const std::uint8_t real_val = std::uint8_t(val);
-        return {extra(real_val & 0x7), std::uint8_t(real_val >> 3)};
+        return {extra(real_val >> 6), std::uint8_t(real_val & 0x3f)};
     }
 
-    //! Information about an output that has been received by an `account`.
+    //! Information for an output that has been received by an `account`.
     struct output
     {
-        block_id height;          //!< Must be first for LMDB optimizations
-        output_id id;             //!< Must be second for LMDB optimizations
-        std::uint64_t amount;
-        std::uint64_t timestamp;
-        std::uint64_t unlock_time;//!< Not always a timestamp; mirrors chain value.
-        std::uint32_t mixin_count;//!< Ring-size of TX
-        std::uint32_t index;      //!< Offset within a tx
-        crypto::hash tx_hash;
-        crypto::hash tx_prefix_hash;
-        crypto::public_key tx_public;
-        struct ringct_
+        transaction_link link;        //! Orders and links `output` to `spend`s.
+
+        //! Data that a linked `spend` needs in some REST endpoints.
+        struct spend_meta_
         {
-            rct::key mask;        //!< Unencrypted CT mask
-        } ringct;
+            output_id id;             //!< Unique id for output within monero
+        // `link` and `id` must be in this order for LMDB optimizations
+            std::uint64_t amount;
+            std::uint32_t mixin_count;//!< Ring-size of TX
+            std::uint32_t index;      //!< Offset within a tx
+            crypto::public_key tx_public;
+        } spend_meta;
+
+        std::uint64_t timestamp;
+        std::uint64_t unlock_time; //!< Not always a timestamp; mirrors chain value.
+        crypto::hash tx_prefix_hash;
+        rct::key ringct_mask;      //!< Unencrypted CT mask
         char reserved[7];
-        extra_and_length extra;   //!< Extra info + length of payment id
+        extra_and_length extra;    //!< Extra info + length of payment id
         union payment_id_
         {
-            crypto::hash8 short_; //!< Decrypted short payment id
-            crypto::hash long_;   //!< Long version of payment id (always decrypted)
+            crypto::hash8 short_;  //!< Decrypted short payment id
+            crypto::hash long_;    //!< Long version of payment id (always decrypted)
         } payment_id;
     };
-    static_assert(sizeof(output) == (8 * 5) + (4 * 2) + (32 * 4) + 7 + 1 + 32, "padding in output");
+    static_assert(
+        sizeof(output) == 8 + 32 + (8 * 2) + (4 * 2) + 32 + (8 * 2) + (32 * 2) + 7 + 1 + 32,
+        "padding in output"
+    );
 
     //! Information about a possible spend of a received `output`.
     struct spend
     {
-        crypto::key_image image;  //!< Must be first for LMDB optimizations
-        std::uint32_t mixin_count;//!< Ring-size of TX spending output
+        transaction_link link;    //!< Orders and links `spend` to `output`.
+        crypto::key_image image;  //!< Unique ID for the spend
+        // `link` and `image` must in this order for LMDB optimizations
+        output_id source;         //!< The output being spent
+        std::uint64_t timestamp;  //!< Timestamp of spend
+        std::uint64_t unlock_time;//!< Unlock time of spend
+        std::uint32_t mixin_count;//!< Ring-size of TX output
+        char reserved[3];
+        std::uint8_t length;      //!< Length of `payment_id` field (0..32).
+        crypto::hash payment_id;  //!< Unencrypted only, can't decrypt spend
     };
-    static_assert(sizeof(spend) == 32 + 4, "padding in spend");
+    static_assert(sizeof(spend) == 8 + 32 * 2 + 8 * 3 + 4 + 3 + 1 + 32, "padding in spend");
+
+    //! Key image and info needed to retrieve primary `spend` data.
+    struct key_image
+    {
+        crypto::key_image value; //!< Actual key image value
+        // The above field needs to be first for LMDB optimizations
+        transaction_link link;   //!< Link to `spend` and `output`.
+    };
 
     struct request_info
     {
@@ -178,6 +210,9 @@ namespace db
         char reserved[4];
     };
     static_assert(sizeof(request_info) == 64 + 32 + 8 + (4 * 2), "padding in request_info");
+
+    bool operator<(transaction_link const& left, transaction_link const& right) noexcept;
+    bool operator<=(transaction_link const& left, transaction_link const& right) noexcept;
 
     /*!
         Write `address` to `out` in base58 format using

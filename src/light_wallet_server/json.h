@@ -79,6 +79,13 @@ namespace json
     };
     constexpr const spend_ spend{};
 
+    struct key_image_
+    {
+        expect<void> operator()(rapidjson::Value const& src, db::key_image& dest) const;
+        expect<void> operator()(std::ostream& dest, db::key_image const& src) const;
+    };
+    constexpr const key_image_ key_image{};
+
     struct request_info_
     {
         const bool show_sensitive;

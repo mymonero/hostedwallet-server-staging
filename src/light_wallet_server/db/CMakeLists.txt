@@ -1,4 +1,4 @@
-set(lws-db_sources storage.cpp string.cpp)
+set(lws-db_sources data.cpp storage.cpp string.cpp)
 set(lws-db_headers data.h fwd.h storage.h string.h)
 
 monero_add_library(light_wallet_server-db ${lws-db_sources} ${lws-db_headers})

@@ -3,5 +3,6 @@
 namespace lws
 {
     class account;
-    class transaction;
+    class rest_server;
+    class scanner;
 }

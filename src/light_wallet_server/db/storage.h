@@ -49,6 +49,7 @@ namespace db
         MONERO_CURSOR(accounts);
         MONERO_CURSOR(outputs);
         MONERO_CURSOR(spends);
+        MONERO_CURSOR(images);
         MONERO_CURSOR(requests);
 
         MONERO_CURSOR(blocks);
@@ -109,13 +110,17 @@ namespace db
             return get_account(address, cur);
         }
 
-        //! \return All outputs received by `id` or `lmdb::error(MDB_NOT_FOUND)`.
+        //! \return All outputs received by `id`.
         expect<lmdb::value_stream<output, cursor::close_outputs>>
             get_outputs(account_id id, cursor::outputs cur = nullptr) noexcept;
 
-        //! \return All potential spends of `id` or `lmdb::error(MDB_NOT_FOUND)`.
+        //! \return All potential spends by `id`.
         expect<lmdb::value_stream<spend, cursor::close_spends>>
-            get_spends(output_id id, cursor::spends cur = nullptr) noexcept;
+            get_spends(account_id id, cursor::spends cur = nullptr) noexcept;
+
+        //! \return All key images associated with `id`.
+        expect<lmdb::value_stream<db::key_image, cursor::close_images>>
+            get_images(output_id id, cursor::images cur = nullptr) noexcept;
 
         //! \return All `request_info`s.
         expect<lmdb::key_stream<request, request_info, cursor::close_requests>>

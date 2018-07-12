@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/utility/string_ref.hpp>
+#include <boost/range/adaptor/indexed.hpp>
 #include <boost/spirit/include/qi_eoi.hpp>
 #include <boost/spirit/include/qi_sequence.hpp>
 #include <boost/spirit/include/qi_uint.hpp>
+#include <cstring>
 #include <ctime>
 #include <limits>
 #include <rapidjson/document.h>
@@ -44,37 +46,6 @@ namespace lws
             {}
         }; 
 
-        struct spend
-        {
-            std::uint64_t amount;
-            std::uint32_t mixin;
-            std::uint32_t index;
-            crypto::public_key tx_public;
-            crypto::key_image image;
-        };
-
-        struct spend_info
-        {
-            std::vector<spend> images;
-            std::uint64_t sent;
-
-            expect<db::cursor::spends> add(db::output const& out, db::storage_reader& reader, db::cursor::spends cur)
-            {
-                auto spends = reader.get_spends(out.id, std::move(cur));
-                if (!spends)
-                    return spends.error();
-
-                for (db::spend const& spend : spends->make_range())
-                {
-                    sent += out.amount;
-                    images.push_back(
-                        {out.amount, spend.mixin_count, out.index, out.tx_public, spend.image}
-                    );
-                }
-                return spends->give_cursor();
-            }
-        };
-
         bool is_hidden(db::account_status status) noexcept
         {
             switch (status)
@@ -98,13 +69,30 @@ namespace lws
                 return false;
             return true;
         }
-
+/*
         bool is_locked(db::output const& out, db::block_id last) noexcept
         {
             static constexpr std::uint64_t coinbase_timeout = CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW;
 
             return unpack(out.extra).first == db::extra::kCoinbase ?
-                (lmdb::to_native(last) <= lmdb::to_native(out.height) + coinbase_timeout) : false;
+                (lmdb::to_native(last) <= lmdb::to_native(out.link.height) + coinbase_timeout) : false;
+        }
+*/
+        std::vector<db::output::spend_meta_>::const_iterator
+        find_metadata(std::vector<db::output::spend_meta_> const& metas, db::output_id id)
+        {
+            struct by_output_id
+            {
+                bool operator()(db::output::spend_meta_ const& left, db::output_id right) const noexcept
+                {
+                    return left.id < right;
+                }
+                bool operator()(db::output_id left, db::output::spend_meta_ const& right) const noexcept
+                {
+                    return left < right.id;
+                }
+            };
+            return std::lower_bound(metas.begin(), metas.end(), id, by_output_id{});
         }
 
         struct rates {};
@@ -191,7 +179,8 @@ namespace lws
 
         struct spent_json_
         {
-            expect<void> operator()(std::ostream& dest, spend const& src) const
+            using input_type = std::pair<db::output::spend_meta_, db::spend>;
+            expect<void> operator()(std::ostream& dest, input_type const& src) const
             {
                 static constexpr const auto fmt = json::object(
                     json::field("amount", uint64_json_string),
@@ -201,7 +190,10 @@ namespace lws
                     json::field("mixin", json::uint32)
                 );
 
-                return fmt(dest, src.amount, src.image, src.tx_public, src.index, src.mixin);
+                return fmt(
+                    dest, src.first.amount, src.second.image,
+                    src.first.tx_public, src.first.index, src.second.mixin_count
+                );
             }
         };
         constexpr const spent_json_ spent_json{};
@@ -246,7 +238,7 @@ namespace lws
 
         expect<std::string> get_address_info(rapidjson::Value const& root, db::storage disk, rpc::client const&, context& ctx)
         {
-            constexpr const auto response = json::object(
+            static constexpr const auto response = json::object(
                 json::field("locked_funds", uint64_json_string),
                 json::field("total_received", uint64_json_string),
                 json::field("total_sent", uint64_json_string),
@@ -259,45 +251,77 @@ namespace lws
                 json::field("rates", rates_json)
             );
 
-            expect<db::storage_reader> reader = disk.start_read();
-            if (!reader)
-                return reader.error();
-
-            const expect<db::account> user = get_account(root, *reader);
-            if (!user)
-                return user.error();
-            ctx.logged_in = true;
-
-            auto outputs = reader->get_outputs(user->id);
-            if (!outputs)
-                return outputs.error();
-
-            const expect<db::block_info> last = reader->get_last_block();
-            if (!last)
-                return last.error();
-
             std::uint64_t locked = 0;
             std::uint64_t received = 0;
-            spend_info spends{};
-           
-            expect<db::cursor::spends> spends_cur{nullptr};
-            for (db::output const& out : outputs->make_range())
-            {        
-                received += out.amount;
+            std::uint64_t spent = 0;
+            db::block_id chain_height;
+            db::block_id user_height;
+            db::block_id user_start;
+            std::vector<std::pair<db::output::spend_meta_, db::spend>> spends_full;
 
-                if (is_locked(out, last->id))
-                    locked += out.amount;
+            {
+                expect<db::storage_reader> reader = disk.start_read();
+                if (!reader)
+                    return reader.error();
 
-                spends_cur = spends.add(out, *reader, std::move(*spends_cur));
-                if (!spends_cur)
-                    return spends_cur.error();
-            }
+                const expect<db::account> user = get_account(root, *reader);
+                if (!user)
+                    return user.error();
+                ctx.logged_in = true;
 
-            reader->finish_read();
+                auto outputs = reader->get_outputs(user->id);
+                if (!outputs)
+                    return outputs.error();
+
+                auto spends = reader->get_spends(user->id);
+                if (!spends)
+                    return spends.error();
+
+                const expect<db::block_info> last = reader->get_last_block();
+                if (!last)
+                    return last.error();
+
+                chain_height = last->id;
+                user_height = user->scan_height;
+                user_start = user->start_height;
+
+                std::vector<db::output::spend_meta_> metas{};
+                metas.reserve(outputs->count());
+
+                for (auto output = outputs->make_iterator(); !output.is_end(); ++output)
+                {
+                    const db::output::spend_meta_ meta =
+                        output.get_value<MONERO_FIELD(db::output, spend_meta)>();
+
+                    // these outputs will usually be in correct order post ringct
+                    if (metas.empty() || metas.back().id < meta.id)
+                        metas.push_back(meta);
+                    else
+                        metas.insert(find_metadata(metas, meta.id), meta);
+
+                    received += meta.amount;
+                }
+
+                spends_full.reserve(spends->count());
+                for (auto const& spend : spends->make_range())
+                {
+                    const auto meta = find_metadata(metas, spend.source);
+                    if (meta == metas.end() || meta->id != spend.source)
+                    {
+                        throw std::logic_error{
+                            "Serious database error, no receive for spend"
+                        };
+                    }
+
+                    spends_full.push_back({*meta, spend});
+                    spent += meta->amount;
+                }
+            } // release temporary resources for DB reading
+
             return generate_body(
-                response, locked, received, spends.sent,
-                user->scan_height, user->scan_height, user->start_height,
-                last->id, last->id, spends.images, rates{}
+                response, locked, received, spent,
+                user_height, user_height, user_start,
+                chain_height, chain_height, spends_full, rates{}
             );
         }
 
@@ -305,13 +329,14 @@ namespace lws
         {
             struct transaction
             {
-                db::output out;
-                spend_info spends;
+                db::output info;
+                std::vector<std::pair<db::output::spend_meta_, db::spend>> spends;
+                std::uint64_t spent;
             };
 
             struct transaction_json
             {
-                expect<void> operator()(std::ostream& dest, transaction const& src) const
+                expect<void> operator()(std::ostream& dest, boost::range::index_value<transaction&> src) const
                 {
                     static constexpr const auto fmt = json::object(
                         json::field("id", json::uint64),
@@ -331,15 +356,15 @@ namespace lws
                     epee::span<const std::uint8_t> const* payment_id = nullptr;
                     epee::span<const std::uint8_t> payment_id_bytes;
 
-                    const auto extra = db::unpack(src.out.extra);
+                    const auto extra = db::unpack(src.value().info.extra);
                     if (extra.second)
                     {
                         payment_id = std::addressof(payment_id_bytes);
 
-                        if (extra.second == sizeof(src.out.payment_id.short_))
-                            payment_id_bytes = epee::as_byte_span(src.out.payment_id.short_);
+                        if (extra.second == sizeof(src.value().info.payment_id.short_))
+                            payment_id_bytes = epee::as_byte_span(src.value().info.payment_id.short_);
                         else
-                            payment_id_bytes = epee::as_byte_span(src.out.payment_id.long_);
+                            payment_id_bytes = epee::as_byte_span(src.value().info.payment_id.long_);
                     }
 
                     const bool is_coinbase =
@@ -347,11 +372,12 @@ namespace lws
 
                     return fmt(
                         dest,
-                        src.out.id, src.out.tx_hash, src.out.timestamp,
-                        src.out.amount, src.spends.sent,
-                        src.out.unlock_time, src.out.height,
+                        std::uint64_t(src.index()), src.value().info.link.tx_hash,
+                        src.value().info.timestamp,
+                        src.value().info.spend_meta.amount, src.value().spent,
+                        src.value().info.unlock_time, src.value().info.link.height,
                         payment_id, is_coinbase, false,
-                        src.out.mixin_count, src.spends.images
+                        src.value().info.spend_meta.mixin_count, src.value().spends
                     );
                 }
             };
@@ -366,46 +392,130 @@ namespace lws
                 json::field("transactions", json::array(transaction_json{}))
             );
 
-            expect<db::storage_reader> reader = disk.start_read();
-            if (!reader)
-                return reader.error();
-
-            const expect<db::account> user = get_account(root, *reader);
-            if (!user)
-                return user.error();
-            ctx.logged_in = true;
-
-            auto outputs = reader->get_outputs(user->id);
-            if (!outputs)
-                return outputs.error();
-
-            const expect<db::block_info> last = reader->get_last_block();
-            if (!last)
-                return last.error();
-
             std::uint64_t received = 0;
-            std::vector<transaction> txes{};
-           
-            expect<db::cursor::spends> spends_cur{nullptr};
-            for (db::output const& out : outputs->make_range())
-            {        
-                received += out.amount;
+            db::block_id user_height;
+            db::block_id user_start;
+            db::block_id current_height;
+            std::vector<transaction> txes;
+            {
+                expect<db::storage_reader> reader = disk.start_read();
+                if (!reader)
+                    return reader.error();
 
-                if (txes.empty() || txes.back().out.tx_hash != out.tx_hash)
-                    txes.push_back({out});
-                else
-                    txes.back().out.amount += out.amount;
+                const expect<db::account> user = get_account(root, *reader);
+                if (!user)
+                    return user.error();
+                ctx.logged_in = true;
 
-                spends_cur = txes.back().spends.add(txes.back().out, *reader, std::move(*spends_cur));
-                if (!spends_cur)
-                    return spends_cur.error();
-            }
+                auto outputs = reader->get_outputs(user->id);
+                if (!outputs)
+                    return outputs.error();
 
-            reader->finish_read();
+                auto spends = reader->get_spends(user->id);
+                if (!spends)
+                    return spends.error();
+
+                const expect<db::block_info> last = reader->get_last_block();
+                if (!last)
+                    return last.error();
+
+                user_height = user->scan_height;
+                user_start = user->start_height;
+                current_height = last->id;
+
+                // merge input and output info into a single set of txes.
+
+                auto output = outputs->make_iterator();
+                auto spend = spends->make_iterator();
+
+                std::vector<db::output::spend_meta_> metas{};
+
+                txes.reserve(outputs->count());
+                metas.reserve(txes.capacity());
+
+                db::transaction_link next_output{};
+                db::transaction_link next_spend{};
+
+                if (!output.is_end())
+                    next_output = output.get_value<MONERO_FIELD(db::output, link)>();
+                if (!spend.is_end())
+                    next_spend = spend.get_value<MONERO_FIELD(db::spend, link)>();
+
+                while (!output.is_end() || !spend.is_end())
+                {
+                    if (!txes.empty())
+                    {
+                        db::transaction_link const& last = txes.back().info.link;
+
+                        if ((!output.is_end() && next_output < last) || (!spend.is_end() && next_spend < last))
+                        {
+                            throw std::logic_error{"DB has unexpected sort order"};
+                        }
+                    }
+
+                    if (spend.is_end() || (!output.is_end() && next_output <= next_spend))
+                    {
+                        std::uint64_t amount = 0;
+                        if (txes.empty() || txes.back().info.link.tx_hash != next_output.tx_hash)
+                        {
+                            txes.push_back({*output});
+                            amount = txes.back().info.spend_meta.amount;
+                        }
+                        else
+                        {
+                            amount = output.get_value<MONERO_FIELD(db::output, spend_meta.amount)>();
+                            txes.back().info.spend_meta.amount += amount;
+                        }
+
+                        const db::output_id this_id = txes.back().info.spend_meta.id;
+                        if (metas.empty() || metas.back().id < this_id)
+                            metas.push_back(txes.back().info.spend_meta);
+                        else
+                            metas.insert(find_metadata(metas, this_id), txes.back().info.spend_meta);
+
+                        received += amount;
+
+                        ++output;
+                        if (!output.is_end())
+                            next_output = output.get_value<MONERO_FIELD(db::output, link)>();
+                    }
+                    else if (output.is_end() || (next_spend < next_output))
+                    {
+                        const db::output_id source_id = spend.get_value<MONERO_FIELD(db::spend, source)>();
+                        const auto meta = find_metadata(metas, source_id);
+                        if (meta == metas.end() || meta->id != source_id)
+                        {
+                            throw std::logic_error{
+                                "Serious database error, no receive for spend"
+                            };
+                        }
+
+                        if (txes.empty() || txes.back().info.link.tx_hash != next_spend.tx_hash)
+                        {
+                            txes.push_back({});
+                            txes.back().spends.push_back({*meta, *spend});
+                            txes.back().info.link.height = txes.back().spends.back().second.link.height;
+                            txes.back().info.link.tx_hash = txes.back().spends.back().second.link.tx_hash;
+                            txes.back().info.spend_meta.mixin_count =
+                                txes.back().spends.back().second.mixin_count;
+                            txes.back().info.timestamp = txes.back().spends.back().second.timestamp;
+                            txes.back().info.unlock_time = txes.back().spends.back().second.unlock_time;
+                        }
+                        else
+                            txes.back().spends.push_back({*meta, *spend});
+
+                        txes.back().spent += meta->amount;
+
+                        ++spend;
+                        if (!spend.is_end())
+                            next_spend = spend.get_value<MONERO_FIELD(db::spend, link)>();
+                    }
+                }
+            } // release temporary resources for DB reading
+
             return generate_body(
-                response, received,
-                user->scan_height, user->scan_height, user->start_height,
-                last->id, last->id, txes
+                response, received, user_height, user_height, user_start,
+                current_height, current_height, boost::adaptors::index(txes)
             );
         }
 
@@ -535,8 +645,8 @@ namespace lws
                         json::field("global_index", json::uint64),
                         json::field("tx_id", json::uint64),
                         json::field("tx_hash", json::hex_string),
-                        json::field("tx_pub_key", json::hex_string),
                         json::field("tx_prefix_hash", json::hex_string),
+                        json::field("tx_pub_key", json::hex_string),
                         json::field("timestamp", timestamp_json),
                         json::field("height", json::uint64),
                         json::field("spend_key_images", json::array(json::hex_string)),
@@ -551,11 +661,11 @@ namespace lws
                     
 
                     crypto::key_derivation derived;
-                    if (!crypto::generate_key_derivation(src.first.tx_public, user_key, derived))
+                    if (!crypto::generate_key_derivation(src.first.spend_meta.tx_public, user_key, derived))
                         return {common_error::kCryptoFailure};
 
                     crypto::public_key out_public;
-                    if (!crypto::derive_public_key(derived, src.first.index, user_public, out_public))
+                    if (!crypto::derive_public_key(derived, src.first.spend_meta.index, user_public, out_public))
                         return {common_error::kCryptoFailure};
 
                     struct rct_bytes_ // funky format from mymonero backend
@@ -569,12 +679,12 @@ namespace lws
                     if (lmdb::to_native(unpack(src.first.extra).first) & lmdb::to_native(db::extra::kRingct))
                     { // is rct
                         crypto::secret_key scalar;
-                        rct::ecdhTuple encrypted{src.first.ringct.mask, rct::d2h(src.first.amount)};
+                        rct::ecdhTuple encrypted{src.first.ringct_mask, rct::d2h(src.first.spend_meta.amount)};
 
-                        crypto::derivation_to_scalar(derived, src.first.index, scalar); 
+                        crypto::derivation_to_scalar(derived, src.first.spend_meta.index, scalar);
                         rct::ecdhEncode(encrypted, rct::sk2rct(scalar));
 
-                        rct_bytes.commitment = rct::commit(src.first.amount, src.first.ringct.mask);
+                        rct_bytes.commitment = rct::commit(src.first.spend_meta.amount, src.first.ringct_mask);
                         rct_bytes.mask = encrypted.mask;
                         rct_bytes.amount = encrypted.amount;
 
@@ -582,9 +692,11 @@ namespace lws
                     }
 
                     return fmt(
-                        dest, src.first.amount, out_public, src.first.index, src.first.id,
-                        src.first.id, src.first.tx_hash, src.first.tx_public, src.first.tx_prefix_hash,
-                        src.first.timestamp, src.first.height, src.second, optional_rct
+                        dest, src.first.spend_meta.amount, out_public, src.first.spend_meta.index,
+                        src.first.spend_meta.id, src.first.spend_meta.id,
+                        src.first.link.tx_hash, src.first.tx_prefix_hash,
+                        src.first.spend_meta.tx_public,
+                        src.first.timestamp, src.first.link.height, src.second, optional_rct
                     );
                 }
             };
@@ -609,66 +721,69 @@ namespace lws
                 const std::string msg = rpc::client::make_message(rpc_command::name, req);
                 MONERO_CHECK(client->send(msg, std::chrono::seconds{10}));
             }
-            
-            db::account_address address{};
-            std::uint64_t amount = 0;
-            boost::optional<std::uint32_t> mixin;
-            boost::optional<bool> use_dust;
-            boost::optional<std::uint64_t> threshold;
-            crypto::secret_key key{};
-            MONERO_CHECK(
-                request(root, address, unwrap(key), amount, mixin, use_dust, threshold)
-            );
-            if (!key_check(address, key))
-                return {lws::error::kBadViewKey};
-
-            auto reader = disk.start_read();
-            if (!reader)
-                return reader.error();
-
-            const auto user = reader->get_account(address);
-            if (!user)
-                return user.error();
-            if (is_hidden(user->first))
-                return {lws::error::kNoSuchAccount};
-
-            ctx.logged_in = true;
-
-            auto outputs = reader->get_outputs(user->second.id);
-            if (!outputs)
-                return outputs.error();
-
-            if ((use_dust && *use_dust) || !threshold)
-                threshold = 0;
-
-            if (!mixin)
-                mixin = 0;
 
             std::uint64_t received = 0;
+            crypto::public_key spend_public{};
+            crypto::secret_key key{};
             std::vector<std::pair<db::output, std::vector<crypto::key_image>>> unspent{};
-            unspent.reserve(outputs->count());
-
-            for (db::output const& out : outputs->make_range())
             {
-                if (out.amount < *threshold || out.mixin_count < *mixin)
-                    continue;
+                db::account_address address{};
+                std::uint64_t amount = 0;
+                boost::optional<std::uint32_t> mixin;
+                boost::optional<bool> use_dust;
+                boost::optional<std::uint64_t> threshold;
+                MONERO_CHECK(
+                    request(root, address, unwrap(key), amount, mixin, use_dust, threshold)
+                );
+                if (!key_check(address, key))
+                    return {lws::error::kBadViewKey};
 
-                received += out.amount;
-                unspent.push_back({out, {}});
+                if ((use_dust && *use_dust) || !threshold)
+                    threshold = 0;
 
-                auto spends = reader->get_spends(out.id);
-                if (!spends)
-                    return spends.error();
+                if (!mixin)
+                    mixin = 0;
 
-                unspent.back().second.reserve(spends->count());
-                auto images = spends->make_range<MONERO_FIELD(db::spend, image)>();
-                std::copy(images.begin(), images.end(), std::back_inserter(unspent.back().second));
-            }
+                auto reader = disk.start_read();
+                if (!reader)
+                    return reader.error();
 
-            if (received < amount)
-                return {lws::error::kNoSuchAccount};
+                const auto user = reader->get_account(address);
+                if (!user)
+                    return user.error();
+                if (is_hidden(user->first))
+                    return {lws::error::kNoSuchAccount};
 
-            reader->finish_read();
+                ctx.logged_in = true;
+
+                spend_public = user->second.address.spend_public;
+
+                auto outputs = reader->get_outputs(user->second.id);
+                if (!outputs)
+                    return outputs.error();
+
+                unspent.reserve(outputs->count());
+                for (db::output const& out : outputs->make_range())
+                {
+                    if (out.spend_meta.amount < *threshold || out.spend_meta.mixin_count < *mixin)
+                        continue;
+
+                    received += out.spend_meta.amount;
+                    unspent.push_back({out, {}});
+
+                    auto images = reader->get_images(out.spend_meta.id);
+                    if (!images)
+                        return images.error();
+
+                    unspent.back().second.reserve(images->count());
+                    auto range = images->make_range<MONERO_FIELD(db::key_image, value)>();
+                    std::copy(range.begin(), range.end(), std::back_inserter(unspent.back().second));
+                }
+
+                if (received < amount)
+                    return {lws::error::kNoSuchAccount};
+            } // release temporary resources for DB reading
+
             const auto resp = client->receive<rpc_command::Response>(std::chrono::seconds{20});
             if (!resp)
                 return resp.error();
@@ -676,7 +791,7 @@ namespace lws
             const auto response = json::object(
                 json::field("per_kb_fee", json::uint64),
                 json::field("amount", uint64_json_string),
-                json::field("outputs", json::array(output_json{user->second.address.spend_public, key}))
+                json::field("outputs", json::array(output_json{spend_public, key}))
             );
 
             return generate_body(response, resp->estimated_fee_per_kb, received, unspent);
@@ -769,7 +884,7 @@ namespace lws
             char const* const name;
             expect<std::string>
                 (*const run)(rapidjson::Value const&, db::storage, rpc::client const&, context&);
-            unsigned max_size;
+            const unsigned max_size;
             const bool requires_post;
         };
 
@@ -783,7 +898,7 @@ namespace lws
             {"/last_blocks",      nullptr,           0,         false},
             {"/last_txs",         nullptr,           0,         false},
             {"/login",            &login,            2 * 1024,  true},
-            {"/submit_raw_tx",    &submit_raw_tx,    20 * 1024, true}
+            {"/submit_raw_tx",    &submit_raw_tx,    50 * 1024, true}
         };
 
         struct by_name_
@@ -901,7 +1016,7 @@ public:
         }
 
         response.m_response_code = 200;
-        response.m_response_comment = "Ok";
+        response.m_response_comment = "OK";
         response.m_mime_tipe = "application/json";
         response.m_header_info.m_content_type = "application/json";
         response.m_body = std::move(*body);

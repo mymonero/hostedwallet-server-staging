@@ -63,9 +63,9 @@ namespace lws
         crypto::secret_key view_key;
     };
 
-    account::account(std::shared_ptr<const internal> immutable, db::block_id height, std::vector<db::output_id> received_) noexcept
+    account::account(std::shared_ptr<const internal> immutable, db::block_id height, std::vector<db::output_id> spendable) noexcept
       : immutable(std::move(immutable))
-      , received_(std::move(received_))
+      , spendable(std::move(spendable))
       , spends_()
       , outputs_()
       , height(height)
@@ -77,10 +77,10 @@ namespace lws
             MONERO_THROW(::common_error::kInvalidArgument, "using moved from account");
     }
 
-    account::account(db::account const& source, std::vector<db::output_id> received_)
-      : account(std::make_shared<internal>(source), source.scan_height, std::move(received_))
+    account::account(db::account const& source, std::vector<db::output_id> spendable)
+      : account(std::make_shared<internal>(source), source.scan_height, std::move(spendable))
     {
-        std::sort(received_.begin(), received_.end());
+        std::sort(spendable.begin(), spendable.end());
     }
 
     account::~account() noexcept
@@ -88,7 +88,7 @@ namespace lws
 
     account account::clone() const
     {
-        account result{immutable, height, received_};
+        account result{immutable, height, spendable};
         result.outputs_ = outputs_;
         result.spends_ = spends_;
         return result;
@@ -140,28 +140,23 @@ namespace lws
         return immutable->view_key;
     }
 
+    bool account::has_spendable(db::output_id id) const noexcept
+    {
+        return std::binary_search(spendable.begin(), spendable.end(), id);
+    }
+
     void account::add_out(db::output const& out)
     {
         outputs_.push_back(out);
-        received_.insert(
-            std::lower_bound(received_.begin(), received_.end(), out.id),
-            out.id
+        spendable.insert(
+            std::lower_bound(spendable.begin(), spendable.end(), out.spend_meta.id),
+            out.spend_meta.id
         );
     }
 
-    void account::check_spends(crypto::key_image const& image, epee::span<const std::uint64_t> new_spends)
+    void account::add_spend(db::spend const& spend)
     {
-        const std::uint32_t mixin = boost::numeric_cast<std::uint32_t>(
-            std::max(std::size_t(1), new_spends.size()) - 1
-        );
-
-        std::uint64_t id = 0;
-        for (std::uint64_t offset : new_spends)
-        {
-            id += offset;
-            if (std::binary_search(received_.begin(), received_.end(), db::output_id(id)))
-                spends_.emplace_back(db::output_id(id), db::spend{image, mixin});
-        }
+        spends_.push_back(spend);
     }
 } // lws
 

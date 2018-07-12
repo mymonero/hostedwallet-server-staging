@@ -29,7 +29,6 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "crypto/crypto.h"
@@ -38,24 +37,24 @@
 
 namespace lws
 {
+    //! Tracks a subset of DB account info for scanning/updating.
     class account
     {
         struct internal;
         
         std::shared_ptr<const internal> immutable;
-        std::vector<db::output_id> received_;
-        std::vector<std::pair<db::output_id, db::spend>> spends_;
+        std::vector<db::output_id> spendable;
+        std::vector<db::spend> spends_;
         std::vector<db::output> outputs_;
         db::block_id height;
 
-        explicit account(std::shared_ptr<const internal> immutable, db::block_id height, std::vector<db::output_id> received_) noexcept;
+        explicit account(std::shared_ptr<const internal> immutable, db::block_id height, std::vector<db::output_id> spendable) noexcept;
         void null_check() const;
 
     public:
 
-        /*! Construct an empty monero account where `shared` is an array of
-            multiple accounts one of which is `this`. */
-        explicit account(db::account const& source, std::vector<db::output_id> received_);
+        //! Construct an account from `source` and current `spendable` outputs.
+        explicit account(db::account const& source, std::vector<db::output_id> spendable);
 
         /*!
             \return False if this is a "moved-from" account (i.e. the internal
@@ -96,18 +95,19 @@ namespace lws
         //! \return Current scan height of `this`.
         db::block_id scan_height() const noexcept { return height; }
 
-        //! \return Outputs matched during the latest scan
+        //! \return True iff `id` is spendable by `this`.
+        bool has_spendable(db::output_id id) const noexcept;
+
+        //! \return Outputs matched during the latest scan.
         std::vector<db::output> const& outputs() const noexcept { return outputs_; }
 
-        //! \return Spends matched during the latest scan
-        std::vector<std::pair<db::output_id, db::spend>> const& spends() const noexcept
-        {
-            return spends_;
-        }
+        //! \return Spends matched during the latest scan.
+        std::vector<db::spend> const& spends() const noexcept { return spends_; }
 
-        //! Track a new
+        //! Track a newly received `out`.
         void add_out(db::output const& out);
 
-        void check_spends(crypto::key_image const& image, epee::span<const std::uint64_t> new_spends);
+        //! Track a possible `spend`.
+        void add_spend(db::spend const& spend);
     };
 } // lws
