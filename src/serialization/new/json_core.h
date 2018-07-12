@@ -247,10 +247,10 @@ namespace json
         expect<void> read(rapidjson::Value const& src, T& dest) const;
 
         template<typename T>
-        expect<void> write(std::ostream& dest, T const& src, bool more, std::true_type) const;
+        expect<bool> write(std::ostream& dest, T const& src, bool first, std::true_type) const;
 
         template<typename T>
-        expect<void> write(std::ostream& dest, T const& src, bool more, std::false_type) const;
+        expect<bool> write(std::ostream& dest, T const& src, bool first, std::false_type) const;
     };
 
     template<typename F>
@@ -283,7 +283,7 @@ namespace json
             return success();
         }
 
-        static expect<void> write(std::ostream const&)
+        static expect<void> write(std::ostream const&, bool)
         {
             return success();
         }
@@ -303,7 +303,7 @@ namespace json
         expect<void> read(rapidjson::Value const& src, TH& dest, TT&... tail) const;
 
         template<typename TH, typename... TT>
-        expect<void> write(std::ostream& dest, TH const& src, TT const&... tail) const;
+        expect<void> write(std::ostream& dest, bool first, TH const& src, TT const&... tail) const;
     };
 
 

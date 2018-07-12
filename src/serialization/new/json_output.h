@@ -117,32 +117,36 @@ namespace json
 
     template<typename F, bool Required>
     template<typename T>
-    expect<void> field_t<F, Required>::write(std::ostream& dest, T const& src, bool more, std::true_type) const
+    expect<bool> field_t<F, Required>::write(std::ostream& dest, T const& src, bool first, std::true_type) const
     {
+        if (!first)
+            dest << ',';
+
         MONERO_CHECK(json::string(dest, name));
         dest << ':';
         MONERO_CHECK(fmt(dest, src));
-
-        if (more)
-            dest << ',';
-        return success();
+        return false;
     }
 
     template<typename F, bool Required>
     template<typename T>
-    expect<void> field_t<F, Required>::write(std::ostream& dest, T const& src, bool more, std::false_type) const
+    expect<bool> field_t<F, Required>::write(std::ostream& dest, T const& src, bool first, std::false_type) const
     {
         if (bool(src))
-            return write(dest, *src, more, std::true_type{});
-        return success();
+            return write(dest, *src, first, std::true_type{});
+        return true;
     }
 
     template<typename F, bool Required, typename... D>
     template<typename TH, typename... TT>
-    expect<void> fields_<field_t<F, Required>, D...>::write(std::ostream& dest, TH const& src, TT const&... tail) const
+    expect<void> fields_<field_t<F, Required>, D...>::write(std::ostream& dest, bool first, TH const& src, TT const&... tail) const
     {
-        MONERO_CHECK(fmt.write(dest, src, sizeof...(TT) != 0, std::integral_constant<bool, Required>{}));
-        MONERO_CHECK(fields_<D...>::write(dest, tail...));
+        const expect<bool> skipped =
+            fmt.write(dest, src, first, std::integral_constant<bool, Required>{});
+        if (!skipped)
+            return skipped.error();
+
+        MONERO_CHECK(fields_<D...>::write(dest, (*skipped && first), tail...));
         return success();
     }
 
@@ -153,7 +157,7 @@ namespace json
         static_assert(sizeof...(D) <= sizeof...(T), "more values than fields");
         static_assert(sizeof...(D) >= sizeof...(T), "more fields than values");
         dest << '{';
-        MONERO_CHECK(fields_<D...>::write(dest, src...));
+        MONERO_CHECK(fields_<D...>::write(dest, true, src...));
         dest << '}';
         return success();
     }
