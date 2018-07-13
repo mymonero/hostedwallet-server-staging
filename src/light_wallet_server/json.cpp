@@ -85,6 +85,16 @@ namespace json
             return fmt(std::forward<S>(stream), value.id, value.hash);
         }
 
+        template<typename S, typename T>
+        expect<void> output_id_format(S&& stream, T& value)
+        {
+            static constexpr const auto fmt = ::json::object(
+                ::json::field("high", ::json::uint64),
+                ::json::field("low", ::json::uint64)
+            );
+            return fmt(std::forward<S>(stream), value.high, value.low);
+        }
+
         template<typename S, typename T1, typename T2>
         expect<void> spend_format(S&& stream, T1& value, T2& payment_id)
         {
@@ -92,7 +102,7 @@ namespace json
                 ::json::field("height", ::json::uint64),
                 ::json::field("tx_hash", ::json::hex_string),
                 ::json::field("key_image", ::json::hex_string),
-                ::json::field("output_id", ::json::uint64),
+                ::json::field("output_id", json::output_id),
                 ::json::field("timestamp", ::json::uint64),
                 ::json::field("unlock_time", ::json::uint64),
                 ::json::field("mixin_count", ::json::uint32),
@@ -182,10 +192,19 @@ namespace json
         return block_info_format(dest, src);
     }
 
+    expect<void> output_id_::operator()(rapidjson::Value const& src, db::output_id& dest) const
+    {
+        return output_id_format(src, dest);
+    }
+    expect<void> output_id_::operator()(std::ostream& dest, db::output_id const& src) const
+    {
+        return output_id_format(dest, src);
+    }
+
     expect<void> output_::operator()(std::ostream& dest, db::output const& src) const
     {
         static constexpr const auto fmt = ::json::object(
-            ::json::field("id", ::json::uint64),
+            ::json::field("id", json::output_id),
             ::json::field("block", ::json::uint64),
             ::json::field("index", ::json::uint32),
             ::json::field("amount", ::json::uint64),

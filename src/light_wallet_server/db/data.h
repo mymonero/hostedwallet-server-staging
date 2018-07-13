@@ -58,8 +58,12 @@ namespace db
     //! References a block height
     enum class block_id : std::uint64_t {};
 
-    //! References a global output number, as determined by the daemon
-    enum class output_id : std::uint64_t {};
+    //! References a global output number, as determined by the public chain
+    struct output_id
+    {
+        std::uint64_t high; //!< Amount on public chain; rct outputs are `0`
+        std::uint64_t low;  //!< Offset within `amount` on the public chain
+    };
 
     enum class account_status : std::uint8_t
     {
@@ -173,7 +177,7 @@ namespace db
         } payment_id;
     };
     static_assert(
-        sizeof(output) == 8 + 32 + (8 * 2) + (4 * 2) + 32 + (8 * 2) + (32 * 2) + 7 + 1 + 32,
+        sizeof(output) == 8 + 32 + (8 * 3) + (4 * 2) + 32 + (8 * 2) + (32 * 2) + 7 + 1 + 32,
         "padding in output"
     );
 
@@ -191,7 +195,7 @@ namespace db
         std::uint8_t length;      //!< Length of `payment_id` field (0..32).
         crypto::hash payment_id;  //!< Unencrypted only, can't decrypt spend
     };
-    static_assert(sizeof(spend) == 8 + 32 * 2 + 8 * 3 + 4 + 3 + 1 + 32, "padding in spend");
+    static_assert(sizeof(spend) == 8 + 32 * 2 + 8 * 4 + 4 + 3 + 1 + 32, "padding in spend");
 
     //! Key image and info needed to retrieve primary `spend` data.
     struct key_image
@@ -210,6 +214,25 @@ namespace db
         char reserved[4];
     };
     static_assert(sizeof(request_info) == 64 + 32 + 8 + (4 * 2), "padding in request_info");
+
+    inline bool operator==(output_id left, output_id right) noexcept
+    {
+        return left.high == right.high && left.low == right.low;
+    }
+    inline bool operator!=(output_id left, output_id right) noexcept
+    {
+        return left.high != right.high || left.low != right.low;
+    }
+    inline bool operator<(output_id left, output_id right) noexcept
+    {
+        return left.high == right.high ?
+            left.low < right.low : left.high < right.high;
+    }
+    inline bool operator<=(output_id left, output_id right) noexcept
+    {
+        return left.high == right.high ?
+            left.low <= right.low : left.high < right.high;
+    }
 
     bool operator<(transaction_link const& left, transaction_link const& right) noexcept;
     bool operator<=(transaction_link const& left, transaction_link const& right) noexcept;

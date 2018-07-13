@@ -66,6 +66,13 @@ namespace json
     };
     constexpr const block_info_ block_info{};
 
+    struct output_id_
+    {
+        expect<void> operator()(rapidjson::Value const& src, db::output_id& dest) const;
+        expect<void> operator()(std::ostream& dest, db::output_id const& src) const;
+    };
+    constexpr const output_id_ output_id{};
+
     struct output_
     {
         expect<void> operator()(std::ostream& dest, db::output const& src) const;

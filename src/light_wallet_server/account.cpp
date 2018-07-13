@@ -140,7 +140,7 @@ namespace lws
         return immutable->view_key;
     }
 
-    bool account::has_spendable(db::output_id id) const noexcept
+    bool account::has_spendable(db::output_id const& id) const noexcept
     {
         return std::binary_search(spendable.begin(), spendable.end(), id);
     }

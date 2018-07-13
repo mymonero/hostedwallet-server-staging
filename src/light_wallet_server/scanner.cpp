@@ -182,13 +182,13 @@ namespace lws
                         for (std::uint64_t offset : in_data->key_offsets)
                         {
                             goffset += offset;
-                            if (user.has_spendable(db::output_id(goffset)))
+                            if (user.has_spendable(db::output_id{in_data->amount, goffset}))
                             {
                                 user.add_spend(
                                     db::spend{
                                         db::transaction_link{height, tx_hash},
                                         in_data->k_image,
-                                        db::output_id(goffset),
+                                        db::output_id{in_data->amount, goffset},
                                         timestamp,
                                         tx.unlock_time,
                                         mixin,
@@ -257,7 +257,7 @@ namespace lws
                         db::output{
                             db::transaction_link{height, tx_hash},
                             db::output::spend_meta_{
-                                db::output_id(out_ids.at(index)),
+                                db::output_id{out.amount, out_ids.at(index)},
                                 amount,
                                 mixin,
                                 boost::numeric_cast<std::uint32_t>(index),

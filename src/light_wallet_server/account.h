@@ -96,7 +96,7 @@ namespace lws
         db::block_id scan_height() const noexcept { return height; }
 
         //! \return True iff `id` is spendable by `this`.
-        bool has_spendable(db::output_id id) const noexcept;
+        bool has_spendable(db::output_id const& id) const noexcept;
 
         //! \return Outputs matched during the latest scan.
         std::vector<db::output> const& outputs() const noexcept { return outputs_; }

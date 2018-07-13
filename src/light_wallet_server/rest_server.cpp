@@ -693,7 +693,7 @@ namespace lws
 
                     return fmt(
                         dest, src.first.spend_meta.amount, out_public, src.first.spend_meta.index,
-                        src.first.spend_meta.id, src.first.spend_meta.id,
+                        src.first.spend_meta.id.low, src.first.spend_meta.id.low,
                         src.first.link.tx_hash, src.first.tx_prefix_hash,
                         src.first.spend_meta.tx_public,
                         src.first.timestamp, src.first.link.height, src.second, optional_rct

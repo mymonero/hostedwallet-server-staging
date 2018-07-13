@@ -143,7 +143,7 @@ namespace db
 
             left_bytes.remove_prefix(sizeof(crypto::hash));
             right_bytes.remove_prefix(sizeof(crypto::hash));
-            return less<lmdb::native_type<output_id>>(left_bytes, right_bytes);
+            return less<output_id>(left_bytes, right_bytes);
         }
 
         int spend_compare(MDB_val const* left, MDB_val const* right) noexcept
@@ -623,6 +623,15 @@ namespace db
             }
         };
         constexpr const from_integer_ from_integer{};
+
+        struct from_output_id_
+        {
+            expect<std::string> operator()(output_id id) const
+            {
+                return std::to_string(id.high) + ":" + std::to_string(id.low);
+            }
+        };
+        constexpr const from_output_id_ from_output_id{};
     } // anonymous
 
     expect<void> storage_reader::json_debug(std::ostream& out, bool show_keys)
@@ -675,7 +684,7 @@ namespace db
             from_integer, ::json::array(json::spend)
         );
         static constexpr const auto json_images = ::json::map(
-            from_integer, ::json::array(json::key_image)
+            from_output_id, ::json::array(json::key_image)
         );
         static constexpr const auto json_requests = ::json::map(
             ::json::from_enum(db::request_string), ::json::array(json::request_info)

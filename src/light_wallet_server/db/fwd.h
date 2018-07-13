@@ -37,7 +37,6 @@ namespace db
     enum class block_id : std::uint64_t;
     enum class extra : std::uint8_t;
     enum class extra_and_length : std::uint8_t;
-    enum class output_id : std::uint64_t;
     enum class request : std::uint8_t;
 
     struct account;
@@ -45,6 +44,7 @@ namespace db
     struct block_info;
     struct key_image;
     struct output;
+    struct output_id;
     struct request_info;
     struct spend;
     class storage;
