@@ -26,7 +26,6 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
-#include <boost/mpl/identity.hpp>
 #include <cstddef>
 #include <cstring>
 #include <lmdb.h>
@@ -51,10 +50,17 @@
 
 namespace lmdb
 {
+    //! Prevents instatiation of `std::underlying_type<T>` when `T` is not enum.
+    template<typename T>
+    struct identity
+    {
+        using type = T;
+    };
+
     //! Get the native type for enums, or return `T` unchanged.
     template<typename T>
     using native_type = typename std::conditional<
-        std::is_enum<T>::value, std::underlying_type<T>, boost::mpl::identity<T>
+        std::is_enum<T>::value, std::underlying_type<T>, identity<T>
     >::type::type;
 
     //! \return `value` as its native type.
@@ -62,14 +68,6 @@ namespace lmdb
     constexpr native_type<T> to_native(T value) noexcept
     {
         return native_type<T>(value);
-    }
-
-    //! \return True if `T` can use LMDB's internal integer compare functions.
-    template<typename T>
-    inline constexpr bool is_integer_cmp_safe() noexcept
-    {
-        return std::is_same<native_type<T>, unsigned>() ||
-            std::is_same<native_type<T>, std::size_t>();
     }
 
     //! \return `value` bytes in a LMDB `MDB_val` object.

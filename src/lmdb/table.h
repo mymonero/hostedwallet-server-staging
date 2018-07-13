@@ -29,16 +29,10 @@ namespace lmdb
         using key_type = K;
         using value_type = V;
 
-        static constexpr const bool is_integer_key = lmdb::is_integer_cmp_safe<K>();
-        static constexpr const bool is_integer_value = lmdb::is_integer_cmp_safe<V>();
-
         //! \return Additional `flags` based on `K` and `V` properties.
         static constexpr unsigned compute_flags(const unsigned flags) noexcept
         {
-            return flags |
-                (is_integer_key ? MDB_INTEGERKEY : 0) |
-                ((is_integer_value && (flags & MDB_DUPSORT)) ? MDB_INTEGERDUP : 0) |
-                ((flags & MDB_DUPSORT) ? MDB_DUPFIXED : 0);
+            return flags | ((flags & MDB_DUPSORT) ? MDB_DUPFIXED : 0);
         }
 
         constexpr explicit basic_table(const char* name, unsigned flags = 0, MDB_cmp_func value_cmp = nullptr) noexcept
