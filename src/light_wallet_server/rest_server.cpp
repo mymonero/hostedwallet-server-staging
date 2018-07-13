@@ -885,20 +885,17 @@ namespace lws
             expect<std::string>
                 (*const run)(rapidjson::Value const&, db::storage, rpc::client const&, context&);
             const unsigned max_size;
-            const bool requires_post;
         };
 
         constexpr const endpoint endpoints[] = {
-            {"/get_address_info", &get_address_info, 2 * 1024,  true},
-            {"/get_address_txs",  &get_address_txs,  2 * 1024,  true},
-            {"/get_random_outs",  &get_random_outs,  2 * 1024,  true},
-            {"/get_txt_records",  nullptr,           0,         true},
-            {"/get_unspent_outs", &get_unspent_outs, 2 * 1024,  true},
-            {"/import_request",   nullptr,           0,         true},
-            {"/last_blocks",      nullptr,           0,         false},
-            {"/last_txs",         nullptr,           0,         false},
-            {"/login",            &login,            2 * 1024,  true},
-            {"/submit_raw_tx",    &submit_raw_tx,    50 * 1024, true}
+            {"/get_address_info", &get_address_info, 2 * 1024},
+            {"/get_address_txs",  &get_address_txs,  2 * 1024},
+            {"/get_random_outs",  &get_random_outs,  2 * 1024},
+            {"/get_txt_records",  nullptr,           0,      },
+            {"/get_unspent_outs", &get_unspent_outs, 2 * 1024},
+            {"/import_request",   nullptr,           0,      },
+            {"/login",            &login,            2 * 1024},
+            {"/submit_raw_tx",    &submit_raw_tx,    50 * 1024}
         };
 
         struct by_name_
@@ -969,14 +966,7 @@ public:
             return true;
         }
 
-        const bool need_post =
-            handler->requires_post && query.m_http_method != http::http_method_post;
-        const bool need_get =
-            !handler->requires_post &&
-            query.m_http_method != http::http_method_get &&
-            query.m_http_method != http::http_method_head;
-
-        if (need_post || need_get)
+        if (query.m_http_method != http::http_method_post)
         {
             response.m_response_code = 405;
             response.m_response_comment = "Method Not Allowed";
