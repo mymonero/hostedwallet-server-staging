@@ -45,6 +45,8 @@ using namespace epee;
 
 using namespace crypto;
 
+#define ENCRYPTED_PAYMENT_ID_TAIL 0x8d
+
 namespace cryptonote
 {
   //---------------------------------------------------------------
@@ -172,21 +174,33 @@ namespace cryptonote
     //  << "), current_block_size=" << current_block_size << ", already_generated_coins=" << already_generated_coins << ", tx_id=" << get_transaction_hash(tx), LOG_LEVEL_2);
     return true;
   }
-
   //---------------------------------------------------------------
-  boost::optional<std::pair<uint64_t, rct::key>> decode_amount(const rct::key &commitment, const rct::ecdhTuple &info, const crypto::key_derivation &sk, std::size_t index)
+  void encrypt_payment_id(crypto::hash8& out, const crypto::key_derivation& key)
   {
-      crypto::secret_key scalar{};
-      crypto::derivation_to_scalar(sk, index, scalar);
+    crypto::hash hash;
+    char data[33]; /* A hash, and an extra byte */
 
-      rct::ecdhTuple copy{info};
-      rct::ecdhDecode(copy, rct::sk2rct(scalar));
+    memcpy(data, &key, 32);
+    data[32] = ENCRYPTED_PAYMENT_ID_TAIL;
+    cn_fast_hash(data, 33, hash);
 
-      rct::key Ctmp;
-      rct::addKeys2(Ctmp, copy.mask, copy.amount, rct::H);
-      if (rct::equalKeys(commitment, Ctmp))
-          return {{rct::h2d(copy.amount), copy.mask}};
-      return boost::none;
+    for (size_t b = 0; b < 8; ++b)
+      out.data[b] ^= hash.data[b];
+  }
+  //---------------------------------------------------------------
+  boost::optional<std::pair<uint64_t, rct::key>> decode_amount(const rct::key& commitment, const rct::ecdhTuple& info, const crypto::key_derivation& sk, std::size_t index)
+  {
+    crypto::secret_key scalar{};
+    crypto::derivation_to_scalar(sk, index, scalar);
+
+    rct::ecdhTuple copy{info};
+    rct::ecdhDecode(copy, rct::sk2rct(scalar));
+
+    rct::key Ctmp;
+    rct::addKeys2(Ctmp, copy.mask, copy.amount, rct::H);
+    if (rct::equalKeys(commitment, Ctmp))
+      return {{rct::h2d(copy.amount), copy.mask}};
+    return boost::none;
   }
   //---------------------------------------------------------------
   crypto::public_key get_destination_view_key_pub(const std::vector<tx_destination_entry> &destinations, const boost::optional<cryptonote::account_public_address>& change_addr)

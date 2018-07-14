@@ -258,7 +258,10 @@ namespace lws
                     {
                         using namespace cryptonote;
                         if (!payment_id.first && get_encrypted_payment_id_from_tx_extra_nonce(extra_nonce->nonce, payment_id.second.short_))
+                        {
                             payment_id.first = sizeof(crypto::hash8);
+                            cryptonote::decrypt_payment_id(payment_id.second.short_, derived);
+                        }
                     }
 
                     MDEBUG("Found match for " << user.address() << " on tx " << tx_hash << " for " << money{amount} << " XMR");
