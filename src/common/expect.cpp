@@ -2,22 +2,6 @@
 
 #include <easylogging++.h>
 #include <string>
-/*
-#if _POSIX_C_SOURCE >= 200112L
- #include <unistd.h>
-#endif
-
-
-void safe_abort() {
-#ifdef NDEBUG
- #if _POSIX_C_SOURCE >= 200112L
-    _exit(1);
- #elif _ISOC99_SOURCE
-    _Exit(1);
- #endif
-#endif
-    abort();
-}*/
 
 namespace detail
 {
@@ -47,30 +31,10 @@ namespace detail
         }
     }
 
-    void expect::log(std::error_code ec, const char* msg, const char* file, unsigned short line)
-    { /*
-        if (!file)
-            file = "";
-        if (!msg)
-            msg = "";
-        el::base::Writer(ERROR, file, line, el::base::DispatchAction::NormalLog, category) << msg; */
-    }
-
     void expect::throw_(std::error_code ec, const char* msg, const char* file, unsigned line)
     {
         if (msg || file)
             throw std::system_error{ec, generate_error(msg, file, line)};
         throw std::system_error{ec};
-    }
-
-    void expect::abort_(std::error_code ec, const char* msg, const char* file, unsigned short line) noexcept
-    {
-        /*try
-        {
-            log(ec, msg, file, line);
-        } 
-        catch (...)
-        {}
-        safe_abort(); */
     }
 } // detail

@@ -56,22 +56,8 @@ namespace detail
  
     struct expect
     {
-        //! `LOG_ERROR()` with optional `msg` and/or optional `file` + `line` and `ec.message()`.
-        static void log(std::error_code ec, const char* msg, const char* file, unsigned short line);
-
         //! \throw std::system_error with `ec`, optional `msg` and/or optional `file` + `line`.
         static void throw_(std::error_code ec, const char* msg, const char* file, unsigned line);
-
-        //! Call `log` then `_Exit(1)` (or `abort()` in debug builds).
-        static void abort_(std::error_code ec, const char* msg, const char* file, unsigned short line) noexcept;
-
-        //! If `result.has_error()` call `log`.
-        template<typename T>
-        static void catch_(::expect<T> const& result, const char* error_msg, const char* file, unsigned short line)
-        {
-            if (!result)
-                log(result.error(), error_msg, file, line);
-        }
 
         //! If `result.has_error()` call `throw_`. Otherwise, \return `*result` by move.
         template<typename T>
@@ -84,14 +70,6 @@ namespace detail
 
         //! If `result.has_error()` call `throw_`.
         static void unwrap(::expect<void>&& result, const char* error_msg, const char* file, unsigned line);
-
-        //! If `result.has_error()` call `abort_`.
-        template<typename T>
-        static void require(::expect<T> const& result, const char* error_msg, const char* file, unsigned short line) noexcept
-        {
-            if (!result)
-                abort_(result.error(), error_msg, file, line);
-        }
     };
 }
 
