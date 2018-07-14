@@ -69,15 +69,14 @@ namespace lws
                 return false;
             return true;
         }
-/*
-        bool is_locked(db::output const& out, db::block_id last) noexcept
-        {
-            static constexpr std::uint64_t coinbase_timeout = CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW;
 
-            return unpack(out.extra).first == db::extra::kCoinbase ?
-                (lmdb::to_native(last) <= lmdb::to_native(out.link.height) + coinbase_timeout) : false;
+        bool is_locked(std::uint64_t unlock_time, db::block_id last) noexcept
+        {
+            if (unlock_time > CRYPTONOTE_MAX_BLOCK_NUMBER)
+                return std::chrono::seconds{unlock_time} > std::chrono::system_clock::now().time_since_epoch();
+            return db::block_id(unlock_time) > last;
         }
-*/
+
         std::vector<db::output::spend_meta_>::const_iterator
         find_metadata(std::vector<db::output::spend_meta_> const& metas, db::output_id id)
         {
@@ -288,6 +287,8 @@ namespace lws
                         metas.insert(find_metadata(metas, meta.id), meta);
 
                     received += meta.amount;
+                    if (is_locked(output.get_value<MONERO_FIELD(db::output, unlock_time)>(), chain_height))
+                        locked += meta.amount;
                 }
 
                 spends_full.reserve(spends->count());
