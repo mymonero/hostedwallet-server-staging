@@ -58,6 +58,7 @@ namespace
         const command_line::arg_descriptor<bool> external_bind;
         const command_line::arg_descriptor<unsigned> create_queue_max;
         const command_line::arg_descriptor<std::chrono::minutes::rep> rates_interval;
+        const command_line::arg_descriptor<unsigned> log_level;
 
         static std::string get_default_zmq()
         {
@@ -84,6 +85,7 @@ namespace
           , external_bind{"external-bind", "Allow listening for external connections"}
           , create_queue_max{"create-queue-max", "Set pending create account requests maximum", 10000}
           , rates_interval{"exchange-rate-interval", "Retrieve exchange rates in minute intervals from cryptocompare.com if greater than 0", 0}
+          , log_level{"log-level", "Log level [0-4]", 1}
         {}
 
         void prepare(boost::program_options::options_description& description) const
@@ -96,6 +98,7 @@ namespace
             command_line::add_arg(description, external_bind);
             command_line::add_arg(description, create_queue_max);
             command_line::add_arg(description, rates_interval);
+            command_line::add_arg(description, log_level);
         }
     };
 
@@ -142,6 +145,8 @@ namespace
         }
 
         opts.set_network(args); // do this first, sets global variable :/
+        mlog_set_log_level(command_line::get_arg(args, opts.log_level));
+
         program prog{
             command_line::get_arg(args, opts.db_path),
             command_line::get_arg(args, opts.rest_server),
