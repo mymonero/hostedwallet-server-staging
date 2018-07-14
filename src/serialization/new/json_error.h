@@ -37,6 +37,8 @@ namespace json
         kBufferOverflow = 1,//!< Fixed-sized buffer for storing data is too small
         kExpectedArray,     //!< Expected a JSON array
         kExpectedBool,      //!< Expected a boolean value
+        kExpectedDouble,    //!< Expected a double value
+        kExpectedFloat,     //!< Expected a float value
         kExpectedObject,    //!< Expected a JOSN object
         kExpectedString,    //!< Expected a string value
         kExpectedUnsigned,  //!< Expected an unsigned integer value

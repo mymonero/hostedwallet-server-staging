@@ -24,6 +24,8 @@
 // INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#pragma once
+
 #include <limits>
 #include <rapidjson/document.h>
 
@@ -37,7 +39,7 @@ namespace json
         template<typename T>
         using limit = std::numeric_limits<T>;
 
-        // definition in core.cpp
+        // definition in json_core.cpp
         expect<std::uint64_t> get_unsigned(rapidjson::Value const& src, std::uint64_t max) noexcept;
 
         template<typename U, typename T>
@@ -46,6 +48,10 @@ namespace json
             // Don't use `std::max`, use promotion rules with comparison
             return limit<T>::max() <= limit<U>::max() ? limit<T>::max() : limit<U>::max();
         }
+
+        // definitions in json_core.cpp
+        expect<void> get_real(rapidjson::Value const& src, float& dest) noexcept;
+        expect<void> get_real(rapidjson::Value const& src, double& dest) noexcept;
     }
 
     template<typename T>
@@ -72,6 +78,13 @@ namespace json
         MONERO_CHECK((*this)(src, temp));
         dest = U(temp);
         return success();
+    }
+
+
+    template<typename T>
+    expect<void> real_<T>::operator()(rapidjson::Value const& src, T& dest) const noexcept
+    {
+        return detail::get_real(src, dest);
     }
 
 

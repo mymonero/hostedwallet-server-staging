@@ -33,11 +33,17 @@
 
 namespace json
 {
+    namespace detail
+    {
+        // implementations in json_core.cpp
+        expect<void> put_unsigned(std::ostream&, std::uint64_t);
+        expect<void> put_real(std::ostream&, double, unsigned precision);
+    }
+
     template<typename T>
     expect<void> unsigned_<T>::operator()(std::ostream& dest, T src) const
     {
-        dest << src;
-        return success();
+        return detail::put_unsigned(dest, src);
     }
 
     template<typename T>
@@ -51,6 +57,13 @@ namespace json
             std::is_same<T, typename std::underlying_type<U>::type>(), "enum has wrong width"
         );
         return (*this)(dest, T(src));
+    }
+
+
+    template<typename T>
+    expect<void> real_<T>::operator()(std::ostream& dest, T src) const
+    {
+        return detail::put_real(dest, src, std::numeric_limits<T>::digits10);
     }
 
 

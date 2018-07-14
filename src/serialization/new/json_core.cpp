@@ -57,6 +57,40 @@ namespace json
                 return {json::error::kExpectedUnsigned};
             return numeric_check(src.GetUint64(), std::uint64_t(0), max);
         }
+
+        expect<void> get_real(rapidjson::Value const& src, float& dest) noexcept
+        {
+            if (!src.IsNumber() || !src.IsLosslessFloat())
+                return {json::error::kExpectedFloat};
+            dest = src.GetFloat();
+            return success();
+        }
+        expect<void> get_real(rapidjson::Value const& src, double& dest) noexcept
+        {
+            if (!src.IsNumber() || !src.IsLosslessDouble())
+                return {json::error::kExpectedDouble};
+            dest = src.GetDouble();
+            return success();
+        }
+
+        expect<void> put_unsigned(std::ostream& dest, std::uint64_t src)
+        {
+            dest.width(0);
+            dest.setf(std::ios::dec, std::ios::basefield);
+            dest.unsetf(std::ios::showpoint | std::ios::showbase | std::ios::showpos);
+            dest << src;
+            return success();
+        }
+
+        expect<void> put_real(std::ostream& dest, double src, unsigned precision)
+        {
+            dest.width(0);
+            dest.setf(std::ios::dec, (std::ios::basefield | std::ios::floatfield));
+            dest.unsetf(std::ios::showpoint | std::ios::showbase | std::ios::showpos);
+            dest.precision(precision);
+            dest << src;
+            return success();
+        }
     }
 
     expect<void> boolean_::operator()(rapidjson::Value const& src, bool& dest) const

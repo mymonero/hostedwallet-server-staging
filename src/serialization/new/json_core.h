@@ -27,6 +27,7 @@
 #pragma once
 
 #include <boost/utility/string_ref.hpp>
+#include <cfloat>
 #include <cstdint>
 #include <iosfwd>
 #include <rapidjson/fwd.h>
@@ -95,6 +96,25 @@ namespace json
     constexpr const unsigned_<std::uint16_t> uint16 {};
     constexpr const unsigned_<std::uint32_t> uint32 {};
     constexpr const unsigned_<std::uint64_t> uint64 {};
+
+    template<typename T>
+    struct real_
+    {
+        static_assert(std::is_floating_point<T>(), "only float types allowed");
+        static_assert(
+            FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128,
+            "float is not 32-bit compatible"
+        );
+        static_assert(
+            DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024,
+            "double is not 64-bit compatible"
+        );
+
+        expect<void> operator()(rapidjson::Value const& src, T& dest) const noexcept;
+        expect<void> operator()(std::ostream& dest, T src) const;
+    };
+    constexpr const real_<float> real32 {};
+    constexpr const real_<double> real64 {};
 
 
     //! Formatter for string types.

@@ -45,6 +45,10 @@ namespace json
                     return "JSON parser expected array";
                 case error::kExpectedBool:
                     return "JSON parser expected bool";
+                case error::kExpectedDouble:
+                    return "JSON parser expected double";
+                case error::kExpectedFloat:
+                    return "JSON parser expected float";
                 case error::kExpectedObject:
                     return "JSON parser expected object";
                 case error::kExpectedString:
