@@ -599,6 +599,20 @@ namespace db
         MONERO_CHECK(check_cursor(*txn, db->tables.requests, cur));
         return requests.get_key_stream(std::move(cur));
     }
+
+    expect<request_info>
+    storage_reader::get_request(request type, account_address const& address, cursor::requests cur) noexcept
+    {
+        MONERO_PRECOND(txn != nullptr);
+        assert(db != nullptr);
+
+        MONERO_CHECK(check_cursor(*txn, db->tables.requests, cur));
+
+        MDB_val key = lmdb::to_val(type);
+        MDB_val value = lmdb::to_val(address);
+        MONERO_LMDB_CHECK(mdb_cursor_get(cur.get(), &key, &value, MDB_GET_BOTH));
+        return requests.get_value<request_info>(value);
+    }
  
     namespace
     {

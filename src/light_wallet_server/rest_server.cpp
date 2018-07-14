@@ -789,6 +789,65 @@ namespace lws
             return generate_body(response, resp->estimated_fee_per_kb, received, unspent);
         }
 
+        expect<std::string> import_request(rapidjson::Value const& root, db::storage disk, rpc::client const&, context& ctx)
+        {
+            static constexpr const auto request = json::object(
+                json::field("address", address_json),
+                json::field("view_key", json::hex_string)
+            );
+            static constexpr const auto response = json::object(
+                json::field("import_fee", uint64_json_string),
+                json::field("new_request", json::boolean),
+                json::field("request_fulfilled", json::boolean),
+                json::field("status", json::string)
+            );
+
+            bool new_request = false;
+            bool fulfilled = false;
+            db::account_address address{};
+            crypto::secret_key key{};
+
+            MONERO_CHECK(request(root, address, unwrap(key)));
+            if (!key_check(address, key))
+                return {lws::error::kBadViewKey};
+            {
+                auto reader = disk.start_read();
+                if (!reader)
+                    return reader.error();
+
+                const auto account = reader->get_account(address);
+
+                if (!account || is_hidden(account->first))
+                    return {lws::error::kNoSuchAccount};
+
+                ctx.logged_in = true;
+
+                if (account->second.start_height == db::block_id(0))
+                    fulfilled = true;
+                else
+                {
+                    const expect<db::request_info> info =
+                        reader->get_request(db::request::kImportScan, address);
+
+                    if (!info)
+                    {
+                        if (info != lmdb::error(MDB_NOTFOUND))
+                            return info.error();
+
+                        new_request = true;
+                   }
+                }
+            }
+
+            if (new_request)
+                MONERO_CHECK(disk.import_request(address, db::block_id(0)));
+
+            return generate_body(
+                response, 0, new_request, fulfilled,
+                new_request ? "Accepted, waiting for approval" : (fulfilled ? "Approved" : "Waiting for Approval")
+            );
+        }
+
         expect<std::string> login(rapidjson::Value const& root, db::storage disk, rpc::client const&, context& ctx)
         {
             static constexpr const auto request = json::object(
@@ -885,7 +944,7 @@ namespace lws
             {"/get_random_outs",  &get_random_outs,  2 * 1024},
             {"/get_txt_records",  nullptr,           0,      },
             {"/get_unspent_outs", &get_unspent_outs, 2 * 1024},
-            {"/import_request",   nullptr,           0,      },
+            {"/import_request",   &import_request,   2 * 1024},
             {"/login",            &login,            2 * 1024},
             {"/submit_raw_tx",    &submit_raw_tx,    50 * 1024}
         };

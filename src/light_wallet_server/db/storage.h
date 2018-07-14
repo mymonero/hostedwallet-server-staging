@@ -126,6 +126,10 @@ namespace db
         expect<lmdb::key_stream<request, request_info, cursor::close_requests>>
             get_requests(cursor::requests cur = nullptr) noexcept;
 
+        //! \return A specific request from `address` of `type`.
+        expect<request_info>
+            get_request(request type, account_address const& address, cursor::requests cur = nullptr) noexcept;
+
         //! Dump the contents of the database in JSON format to `out`.
         expect<void> json_debug(std::ostream& out, bool show_keys);
 
