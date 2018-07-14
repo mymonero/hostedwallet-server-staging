@@ -95,18 +95,6 @@ namespace lws
             return std::lower_bound(metas.begin(), metas.end(), id, by_output_id{});
         }
 
-        struct rates {};
-
-        struct rates_json_
-        {
-            expect<void> operator()(std::ostream& dest, rates) const noexcept
-            {
-                static constexpr const auto fmt = json::object();
-                return fmt(dest);
-            }
-        };
-        constexpr const rates_json_ rates_json{};
-
         //! \TODO some field are written as uint64 strings - possibly for Javascript ?
         struct uint64_json_string_
         {
@@ -236,7 +224,7 @@ namespace lws
             return stream.str();
         } 
 
-        expect<std::string> get_address_info(rapidjson::Value const& root, db::storage disk, rpc::client const&, context& ctx)
+        expect<std::string> get_address_info(rapidjson::Value const& root, db::storage disk, rpc::client const& client, context& ctx)
         {
             static constexpr const auto response = json::object(
                 json::field("locked_funds", uint64_json_string),
@@ -248,7 +236,7 @@ namespace lws
                 json::field("transaction_height", json::uint64),
                 json::field("blockchain_height", json::uint64),
                 json::field("spent_outputs", json::array(spent_json)),
-                json::field("rates", rates_json)
+                json::optional_field("rates", rpc::json::rates)
             );
 
             std::uint64_t locked = 0;
@@ -318,10 +306,14 @@ namespace lws
                 }
             } // release temporary resources for DB reading
 
+            const expect<lws::rates> currencies = client.get_rates();
+            if (!currencies)
+                MWARNING("Unable to retrieve exchange rates: " << currencies.error().message());
+
             return generate_body(
                 response, locked, received, spent,
                 user_height, user_height, user_start,
-                chain_height, chain_height, spends_full, rates{}
+                chain_height, chain_height, spends_full, currencies
             );
         }
 

@@ -26,6 +26,7 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
+#include <boost/optional/optional.hpp>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -33,6 +34,7 @@
 #include <zmq.h>
 
 #include "common/expect.h"
+#include "light_wallet_server/rates.h"
 #include "rpc/message.h"
 
 namespace lws
@@ -54,7 +56,7 @@ namespace rpc
         struct context;
     }
 
-    //! Abstraction for ZMQ RPC client. Not thread-safe; use `clone()`.
+    //! Abstraction for ZMQ RPC client. Only `get_rates()` thread-safe; use `clone()`.
     class client
     {
         std::shared_ptr<detail::context> ctx;
@@ -132,6 +134,14 @@ namespace rpc
             out.fromJson(msg->getMessage());
             return out;
         }
+
+        /*!
+            \note This is the one function that IS thread-safe. Multiple
+                threads can call this function with the same `this` argument.
+
+            \return Recent exchange rates.
+        */
+        expect<rates> get_rates() const;
     };
 
     //! Owns ZMQ context, and ZMQ PUB socket for signalling child `client`s.
@@ -150,8 +160,12 @@ namespace rpc
             \throw std::system_error if any ZMQ errors occur.
 
             \note All errors are exceptions; no recovery can occur.
+
+            \param daemon_addr Location of ZMQ enabled `monerod` RPC.
+            \param rates_interval Frequency to retrieve exchange rates. Set
+                value to `<= 0` to disable exchange rate retrieval.
         */
-        static context make(std::string daemon_addr);
+        static context make(std::string daemon_addr, std::chrono::minutes rates_interval);
 
         context(context&&) = default;
         context(context const&) = delete;
@@ -189,6 +203,16 @@ namespace rpc
             thread-safe.
         */
         expect<void> raise_abort_process() noexcept;
+
+        /*!
+            Retrieve exchange rates, if enabled and past cache interval.
+            Not thread-safe (this can be invoked from one thread only, but this
+            is thread-safe with `client::get_rates()`). All clients will see new
+            rates immediately.
+
+            \return Rates iff they were updated.
+        */
+        expect<boost::optional<lws::rates>> retrieve_rates();
     };
 } // rpc
 } // lws

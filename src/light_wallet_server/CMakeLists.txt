@@ -8,7 +8,7 @@ target_link_libraries(light_wallet_server-lib serialization-new)
 
 add_subdirectory(db)
 
-monero_add_executable(light_wallet_server server_main.cpp rest_server.cpp rpc.cpp scanner.cpp)
+monero_add_executable(light_wallet_server server_main.cpp rates.cpp rest_server.cpp rpc.cpp scanner.cpp)
 target_link_libraries(light_wallet_server
   PRIVATE
     cryptonote_core

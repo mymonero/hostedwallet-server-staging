@@ -27,16 +27,20 @@
 
 #include "rpc.h"
 
+#include <boost/thread/mutex.hpp>
 #include <cassert>
 #include <system_error>
 
 #include "common/error.h"
 #include "light_wallet_server/error.h"
+#include "net/http_client.h"
 
 namespace lws
 {
 namespace rpc
 {
+    namespace http = epee::net_utils::http;
+
     namespace
     {
         constexpr const char signal_endpoint[] = "inproc://signal";
@@ -161,15 +165,28 @@ namespace rpc
     {
         struct context
         {
-            explicit context(zcontext comm, socket signal_pub, std::string daemon_addr)
+            explicit context(zcontext comm, socket signal_pub, std::string daemon_addr, std::chrono::minutes interval)
               : comm(std::move(comm))
               , signal_pub(std::move(signal_pub))
               , daemon_addr(std::move(daemon_addr))
-            {}
+              , rates_conn()
+              , cache_time()
+              , cache_interval(interval)
+              , cached{}
+              , sync_rates()
+            {
+                if (std::chrono::minutes{0} < cache_interval)
+                    rates_conn.set_server(json::crypto_compare.host, boost::none, true);
+            }
 
             zcontext comm;
             socket signal_pub;
             std::string daemon_addr;
+            http::http_simple_client rates_conn;
+            std::chrono::steady_clock::time_point cache_time;
+            const std::chrono::minutes cache_interval;
+            rates cached;
+            boost::mutex sync_rates;
         };
     }
 
@@ -265,7 +282,20 @@ namespace rpc
         return success();
     }
 
-    context context::make(std::string daemon_addr)
+    expect<rates> client::get_rates() const
+    {
+        MONERO_PRECOND(ctx != nullptr);
+        if (ctx->cache_interval <= std::chrono::minutes{0})
+            return {lws::error::kExchangeRatesDisabled};
+
+        const auto now  = std::chrono::steady_clock::now();
+        const boost::unique_lock<boost::mutex> lock{ctx->sync_rates};
+        if (now - ctx->cache_time >= ctx->cache_interval + std::chrono::seconds{30})
+            return {lws::error::kExchangeRatesOld};
+        return ctx->cached;
+    }
+
+    context context::make(std::string daemon_addr, std::chrono::minutes rates_interval)
     {
         zcontext comm{zmq_init(1)};
         if (comm == nullptr)
@@ -279,7 +309,7 @@ namespace rpc
 
         return context{
             std::make_shared<detail::context>(
-                std::move(comm), std::move(pub), std::move(daemon_addr)
+                std::move(comm), std::move(pub), std::move(daemon_addr), rates_interval
             )
         };
     }
@@ -309,6 +339,42 @@ namespace rpc
         MONERO_PRECOND(ctx != nullptr);
         assert(ctx->signal_pub != nullptr);
         return do_signal(ctx->signal_pub.get(), abort_process_signal);
+    }
+
+    expect<boost::optional<lws::rates>> context::retrieve_rates()
+    {
+        MONERO_PRECOND(ctx != nullptr);
+
+        if (ctx->cache_interval <= std::chrono::minutes{0})
+            return boost::make_optional(false, ctx->cached);
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - ctx->cache_time < ctx->cache_interval)
+            return boost::make_optional(false, ctx->cached);
+
+        expect<rates> fresh{lws::error::kExchangeRatesFetch};
+
+        const http::http_response_info* info = nullptr;
+        const bool retrieved =
+            ctx->rates_conn.invoke_get(json::crypto_compare.path, std::chrono::seconds{20}, std::string{}, std::addressof(info)) &&
+            info != nullptr &&
+            info->m_response_code == 200;
+
+        if (retrieved)
+        {
+            rapidjson::Document doc{};
+            if (rapidjson::ParseResult(doc.Parse(info->m_body.c_str())))
+                fresh = json::crypto_compare(doc);
+        }
+
+        const boost::unique_lock<boost::mutex> lock{ctx->sync_rates};
+        ctx->cache_time = now;
+        if (fresh)
+        {
+            ctx->cached = *fresh;
+            return boost::make_optional(*fresh);
+        }
+        return fresh.error();
     }
 } // rpc
 } // lws

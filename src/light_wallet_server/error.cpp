@@ -63,6 +63,12 @@ namespace lws
                     return "Exceeded internal buffer for blockchain hashes";
                 case error::kExceededRestRequestLimit:
                     return "Request from client via REST exceeded enforced limits";
+                case error::kExchangeRatesDisabled:
+                    return "Exchange rates feature is disabled";
+                case error::kExchangeRatesFetch:
+                    return "Unspecified error when retrieving exchange rates";
+                case error::kExchangeRatesOld:
+                    return "Exchange rates are older than cache interval";
                 case error::kNoSuchAccount:
                     return "No account with the specified address exists";
                 case error::kSignalAbortProcess:

@@ -56,6 +56,13 @@ namespace lws
 {
     std::atomic<bool> scanner::running{true};
 
+    // Not in `rates.h` - defaulting to JSON output seems odd
+    std::ostream& operator<<(std::ostream& out, lws::rates const& src)
+    {
+        rpc::json::rates(out, src);
+        return out;
+    }
+
     namespace
     {
         constexpr const std::chrono::seconds account_poll_interval{10};
@@ -83,9 +90,11 @@ namespace lws
         };
 
         // until we have a signal-handler safe notification system
-        void checked_wait(const std::chrono::milliseconds wait)
+        void checked_wait(const std::chrono::nanoseconds wait)
         {
-            const auto sleep_time = std::min(wait, std::chrono::milliseconds{500});
+            static constexpr const std::chrono::milliseconds interval{500};
+
+            const auto sleep_time = std::min(wait, std::chrono::nanoseconds{interval});
             const auto start = std::chrono::steady_clock::now();
             while (scanner::is_running() && (std::chrono::steady_clock::now() - start) < wait)
                 boost::this_thread::sleep_for(boost::chrono::milliseconds{sleep_time.count()});
@@ -274,6 +283,15 @@ namespace lws
                     );
                 } // for all tx outs
             } // for all users
+        }
+
+        void update_rates(rpc::context& ctx)
+        {
+            const expect<boost::optional<lws::rates>> new_rates = ctx.retrieve_rates();
+            if (!new_rates)
+                MERROR("Failed to retrieve exchange rates: " << new_rates.error().message());
+            else if (*new_rates)
+                MINFO("Updated exchange rates: " << *(*new_rates));
         }
 
         void scan_loop(thread_sync& self, std::shared_ptr<thread_data> data) noexcept
@@ -543,6 +561,8 @@ namespace lws
 
             while (scanner::is_running())
             {
+                update_rates(ctx);
+
                 for (;;)
                 {
                     //! \TODO use signalfd + ZMQ? Windows is the difficult case...
@@ -681,6 +701,9 @@ namespace lws
         rpc::client client{};
         for (;;)
         {
+            const auto last = std::chrono::steady_clock::now();
+            update_rates(ctx);
+
             std::vector<db::account_id> active;
             std::vector<lws::account> users;
 
@@ -715,7 +738,7 @@ namespace lws
             if (users.empty())
             {
                 MINFO("No active accounts");
-                checked_wait(account_poll_interval);
+                checked_wait(account_poll_interval - (std::chrono::steady_clock::now() - last));
             }
             else
                 check_loop(disk.clone(), ctx, thread_count, std::move(users), std::move(active));

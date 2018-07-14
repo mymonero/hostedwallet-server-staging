@@ -46,6 +46,9 @@ namespace lws
         kDuplicateRequest,        //!< Account already has a request of  this type pending
         kExceededBlockchainBuffer,//!< Out buffer for blockchain is too small
         kExceededRestRequestLimit,//!< Exceeded enforced size limits for request
+        kExchangeRatesDisabled,   //!< Exchange rates fetching is disabled
+        kExchangeRatesFetch,      //!< Exchange rates fetching failed
+        kExchangeRatesOld,        //!< Exchange rates are older than cache interval
         kNoSuchAccount,           //!< Account address is not in database.
         kSignalAbortProcess,      //!< In process ZMQ PUB to abort the process was received
         kSignalAbortScan,         //!< In process ZMQ PUB to abort the scan was received
