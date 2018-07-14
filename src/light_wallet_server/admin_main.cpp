@@ -128,11 +128,7 @@ namespace
 
         std::vector<lws::db::account_address> addresses{};
         for (std::string const& address : arguments)
-        {
-            addresses.push_back(
-                MONERO_UNWRAP("Parse address", lws::db::address_string(address))
-            );
-        }
+            addresses.push_back(lws::db::address_string(address).value());
         return addresses;
     }
 
@@ -146,10 +142,9 @@ namespace
         std::vector<lws::db::account_address> addresses =
             get_addresses(epee::to_span(prog.arguments));
 
-        const std::vector<lws::db::account_address> updated = MONERO_UNWRAP(
-            "Store accepted requests", prog.disk.accept_requests(req, epee::to_span(addresses))
-        );
-        MONERO_UNWRAP("json out", updated_list_json(out, epee::to_span(updated)));
+        const std::vector<lws::db::account_address> updated =
+            prog.disk.accept_requests(req, epee::to_span(addresses)).value();
+        MONERO_UNWRAP("JSON out", updated_list_json(out, epee::to_span(updated)));
     }
 
     void add_account(program prog, std::ostream& out)
@@ -158,7 +153,7 @@ namespace
             throw std::runtime_error{"add_account needs exactly two arguments"};
 
         const lws::db::account_address address[1] = {
-            MONERO_UNWRAP("Parse address", lws::db::address_string(prog.arguments[0]))
+            lws::db::address_string(prog.arguments[0]).value()
         };
         const crypto::secret_key key{get_key(prog.arguments[1])};
 
@@ -171,7 +166,7 @@ namespace
         if (!prog.arguments.empty())
             throw std::runtime_error{"debug_database takes zero arguments"};
 
-        auto reader = MONERO_UNWRAP("Storage reader", prog.disk.start_read());
+        auto reader = prog.disk.start_read().value();
         reader.json_debug(out, prog.show_sensitive);
     }
 
@@ -184,8 +179,8 @@ namespace
         if (!prog.arguments.empty())
             throw std::runtime_error{"list_accounts takes zero arguments"};
 
-        auto reader = MONERO_UNWRAP("Storage reader", prog.disk.start_read());
-        auto stream = MONERO_UNWRAP("Get accounts", reader.get_accounts());
+        auto reader = prog.disk.start_read().value();
+        auto stream = reader.get_accounts().value();
         MONERO_UNWRAP("JSON out", fmt(out, stream.make_range()));
     }
 
@@ -210,8 +205,8 @@ namespace
         if (!prog.arguments.empty())
             throw std::runtime_error{"list_requests takes zero arguments"};
 
-        auto reader = MONERO_UNWRAP("Storage reader", prog.disk.start_read());
-        auto stream = MONERO_UNWRAP("Get requests", reader.get_requests());
+        auto reader = prog.disk.start_read().value();
+        auto stream = reader.get_requests().value();
         MONERO_UNWRAP("JSON out", fmt(out, stream.make_range()));
     }
 
@@ -221,13 +216,13 @@ namespace
             throw std::runtime_error{"modify_account_status requires 2 or more arguments"};
 
         const lws::db::account_status status =
-            MONERO_UNWRAP("Parse status", lws::db::status_string(prog.arguments[0]));
+            lws::db::status_string(prog.arguments[0]).value();
         std::vector<lws::db::account_address> addresses =
             get_addresses(epee::to_span(prog.arguments));
 
-        const std::vector<lws::db::account_address> updated = MONERO_UNWRAP(
-            "Store account status", prog.disk.change_status(status, epee::to_span(addresses))
-        );
+        const std::vector<lws::db::account_address> updated =
+            prog.disk.change_status(status, epee::to_span(addresses)).value();
+
         MONERO_UNWRAP("JSON out", updated_list_json(out, epee::to_span(updated)));
     }
 
@@ -237,7 +232,7 @@ namespace
             MONERO_THROW(common_error::kInvalidArgument, "reject_requests requires 2 or more arguments");
 
         const lws::db::request req =
-            MONERO_UNWRAP("Parse request", lws::db::request_string(prog.arguments[0]));
+            lws::db::request_string(prog.arguments[0]).value();
         std::vector<lws::db::account_address> addresses =
             get_addresses(epee::to_span(prog.arguments));
 
@@ -253,9 +248,8 @@ namespace
         const std::vector<lws::db::account_address> addresses =
             get_addresses(epee::to_span(prog.arguments));
 
-        const std::vector<lws::db::account_address> updated = MONERO_UNWRAP(
-            "Rescan accounts", prog.disk.rescan(height, epee::to_span(addresses))
-        );
+        const std::vector<lws::db::account_address> updated =
+            prog.disk.rescan(height, epee::to_span(addresses)).value();
         MONERO_UNWRAP("JSON out", updated_list_json(out, epee::to_span(updated)));
     }
 

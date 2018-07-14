@@ -169,11 +169,7 @@ namespace
         auto ctx = lws::rpc::context::make(std::move(prog.daemon_rpc), prog.rates_interval);
 
         MINFO("Using monerod ZMQ RPC at " << ctx.daemon_address());
-        auto client = MONERO_UNWRAP(
-            "Blockchain sync", lws::scanner::sync(
-                disk.clone(), MONERO_UNWRAP("Daemon connect", ctx.connect())
-            )
-        );
+        auto client = lws::scanner::sync(disk.clone(), ctx.connect().value()).value();
 
         lws::rest_server server{disk.clone(), std::move(client)};
         MONERO_UNWRAP(
