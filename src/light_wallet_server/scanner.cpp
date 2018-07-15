@@ -409,11 +409,15 @@ namespace lws
                         if (indices.empty())
                             throw std::runtime_error{"Bad daemon response - missing coinbase tx indices"};
 
+                        crypto::hash miner_tx_hash;
+                        if (!cryptonote::get_transaction_hash(block.miner_tx, miner_tx_hash))
+                            throw std::runtime_error{"Failed to calculate miner tx hash"};
+
                         scan_transaction(
                             epee::to_mut_span(users),
                             db::block_id(resp->start_height),
                             block.timestamp,
-                            crypto::hash{},
+                            miner_tx_hash,
                             block.miner_tx,
                             *(indices.begin())
                         );
