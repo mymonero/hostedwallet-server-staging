@@ -43,6 +43,7 @@
 #include "cryptonote_basic/cryptonote_basic.h"
 #include "cryptonote_basic/cryptonote_format_utils.h"
 #include "cryptonote_core/cryptonote_tx_utils.h"
+#include "device/device_default.hpp"
 #include "light_wallet_server/account.h"
 #include "light_wallet_server/db/data.h"
 #include "light_wallet_server/error.h"
@@ -261,7 +262,7 @@ namespace lws
                         if (!payment_id.first && get_encrypted_payment_id_from_tx_extra_nonce(extra_nonce->nonce, payment_id.second.short_))
                         {
                             payment_id.first = sizeof(crypto::hash8);
-                            cryptonote::decrypt_payment_id(payment_id.second.short_, derived);
+                            hw::core::device_default::do_decrypt_payment_id(payment_id.second.short_, derived);
                         }
                     }
 

@@ -45,8 +45,6 @@ using namespace epee;
 
 using namespace crypto;
 
-#define ENCRYPTED_PAYMENT_ID_TAIL 0x8d
-
 namespace cryptonote
 {
   //---------------------------------------------------------------
@@ -173,19 +171,6 @@ namespace cryptonote
     //LOG_PRINT("MINER_TX generated ok, block_reward=" << print_money(block_reward) << "("  << print_money(block_reward - fee) << "+" << print_money(fee)
     //  << "), current_block_size=" << current_block_size << ", already_generated_coins=" << already_generated_coins << ", tx_id=" << get_transaction_hash(tx), LOG_LEVEL_2);
     return true;
-  }
-  //---------------------------------------------------------------
-  void encrypt_payment_id(crypto::hash8& out, const crypto::key_derivation& key)
-  {
-    crypto::hash hash;
-    char data[33]; /* A hash, and an extra byte */
-
-    memcpy(data, &key, 32);
-    data[32] = ENCRYPTED_PAYMENT_ID_TAIL;
-    cn_fast_hash(data, 33, hash);
-
-    for (size_t b = 0; b < 8; ++b)
-      out.data[b] ^= hash.data[b];
   }
   //---------------------------------------------------------------
   boost::optional<std::pair<uint64_t, rct::key>> decode_amount(const rct::key& commitment, const rct::ecdhTuple& info, const crypto::key_derivation& sk, std::size_t index)

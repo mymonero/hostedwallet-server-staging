@@ -15,6 +15,7 @@ target_link_libraries(light_wallet_server
     cncrypto
     common
     daemon_messages
+    device
     epee
     light_wallet_server-db
     light_wallet_server-lib

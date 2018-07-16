@@ -34,14 +34,26 @@
 #include "common/int-util.h"
 #include "cryptonote_basic/account.h"
 #include "cryptonote_basic/subaddress_index.h"
-#include "cryptonote_core/cryptonote_tx_utils.h"
 #include "ringct/rctOps.h"
 
+#define ENCRYPTED_PAYMENT_ID_TAIL 0x8d
 #define CHACHA8_KEY_TAIL 0x8c
 
 namespace hw {
 
     namespace core {
+        void device_default::do_encrypt_payment_id(crypto::hash8& out, const crypto::key_derivation& key)
+        {
+            crypto::hash hash;
+            char data[33]; /* A hash, and an extra byte */
+
+            memcpy(data, &key, 32);
+            data[32] = ENCRYPTED_PAYMENT_ID_TAIL;
+            cn_fast_hash(data, 33, hash);
+
+            for (size_t b = 0; b < 8; ++b)
+                out.data[b] ^= hash.data[b];
+        }
 
         device_default::device_default() { }
 
@@ -289,7 +301,7 @@ namespace hw {
             if (!generate_key_derivation(public_key, secret_key, derivation))
                 return false;
 
-            cryptonote::encrypt_payment_id(payment_id, derivation);
+            do_encrypt_payment_id(payment_id, derivation);
             return true;
         }
 
