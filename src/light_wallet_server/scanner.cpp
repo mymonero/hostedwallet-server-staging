@@ -46,6 +46,7 @@
 #include "light_wallet_server/account.h"
 #include "light_wallet_server/db/data.h"
 #include "light_wallet_server/error.h"
+#include "light_wallet_server/json.h"
 #include "misc_log_ex.h"
 #include "rpc/daemon_messages.h"
 
@@ -59,7 +60,7 @@ namespace lws
     // Not in `rates.h` - defaulting to JSON output seems odd
     std::ostream& operator<<(std::ostream& out, lws::rates const& src)
     {
-        rpc::json::rates(out, src);
+        json::rates(out, src);
         return out;
     }
 

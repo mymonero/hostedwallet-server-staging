@@ -23,6 +23,7 @@
 #include "light_wallet_server/db/storage.h"
 #include "light_wallet_server/db/string.h"
 #include "light_wallet_server/error.h"
+#include "light_wallet_server/json.h"
 #include "lmdb/util.h"
 #include "net/http_server_impl_base.h"
 #include "ringct/rctOps.h"
@@ -102,11 +103,11 @@ namespace lws
                 namespace qi = boost::spirit::qi;
 
                 if (!src.IsString())
-                    return {json::error::kExpectedString};
+                    return {::json::error::kExpectedString};
 
                 char const* const str = src.GetString();
                 if (!qi::parse(str, str + src.GetStringLength(), (qi::ulong_long >> qi::eoi), dest))
-                    return {json::error::kOverflow};
+                    return {::json::error::kOverflow};
 
                 return success();
             }
@@ -153,7 +154,7 @@ namespace lws
             expect<void> operator()(rapidjson::Value const& src, db::account_address& dest) const
             {
                 std::string address;
-                MONERO_CHECK(json::string(src, address));
+                MONERO_CHECK(::json::string(src, address));
 
                 const auto user = db::address_string(address);
                 if (!user)
@@ -169,12 +170,12 @@ namespace lws
             using input_type = std::pair<db::output::spend_meta_, db::spend>;
             expect<void> operator()(std::ostream& dest, input_type const& src) const
             {
-                static constexpr const auto fmt = json::object(
-                    json::field("amount", uint64_json_string),
-                    json::field("key_image", json::hex_string),
-                    json::field("tx_pub_key", json::hex_string),
-                    json::field("out_index", json::uint32),
-                    json::field("mixin", json::uint32)
+                static constexpr const auto fmt = ::json::object(
+                    ::json::field("amount", uint64_json_string),
+                    ::json::field("key_image", ::json::hex_string),
+                    ::json::field("tx_pub_key", ::json::hex_string),
+                    ::json::field("out_index", ::json::uint32),
+                    ::json::field("mixin", ::json::uint32)
                 );
 
                 return fmt(
@@ -188,9 +189,9 @@ namespace lws
         //! \return Account info from the DB, iff key matches address AND address is NOT hidden.
         expect<db::account> get_account(rapidjson::Value const& src, db::storage_reader& reader)
         {
-            static constexpr const auto fmt = json::object(
-                json::field("address", address_json),
-                json::field("view_key", json::hex_string)
+            static constexpr const auto fmt = ::json::object(
+                ::json::field("address", address_json),
+                ::json::field("view_key", ::json::hex_string)
             );
 
             /*!? \TODO This check can be elided iff it is checked once
@@ -225,17 +226,17 @@ namespace lws
 
         expect<std::string> get_address_info(rapidjson::Value const& root, db::storage disk, rpc::client const& client, context& ctx)
         {
-            static constexpr const auto response = json::object(
-                json::field("locked_funds", uint64_json_string),
-                json::field("total_received", uint64_json_string),
-                json::field("total_sent", uint64_json_string),
-                json::field("scanned_height", json::uint64),
-                json::field("scanned_block_height", json::uint64),
-                json::field("start_height", json::uint64),
-                json::field("transaction_height", json::uint64),
-                json::field("blockchain_height", json::uint64),
-                json::field("spent_outputs", json::array(spent_json)),
-                json::optional_field("rates", rpc::json::rates)
+            static constexpr const auto response = ::json::object(
+                ::json::field("locked_funds", uint64_json_string),
+                ::json::field("total_received", uint64_json_string),
+                ::json::field("total_sent", uint64_json_string),
+                ::json::field("scanned_height", ::json::uint64),
+                ::json::field("scanned_block_height", ::json::uint64),
+                ::json::field("start_height", ::json::uint64),
+                ::json::field("transaction_height", ::json::uint64),
+                ::json::field("blockchain_height", ::json::uint64),
+                ::json::field("spent_outputs", ::json::array(spent_json)),
+                ::json::optional_field("rates", lws::json::rates)
             );
 
             std::uint64_t locked = 0;
@@ -331,19 +332,19 @@ namespace lws
             {
                 expect<void> operator()(std::ostream& dest, boost::range::index_value<transaction&> src) const
                 {
-                    static constexpr const auto fmt = json::object(
-                        json::field("id", json::uint64),
-                        json::field("hash", json::hex_string),
-                        json::field("timestamp", timestamp_json),
-                        json::field("total_received", uint64_json_string),
-                        json::field("total_sent", uint64_json_string),
-                        json::field("unlock_time", json::uint64),
-                        json::field("height", json::uint64),
-                        json::optional_field("payment_id", json::hex_string),
-                        json::field("coinbase", json::boolean),
-                        json::field("mempool", json::boolean),
-                        json::field("mixin", json::uint32),
-                        json::field("spent_outputs", json::array(spent_json))
+                    static constexpr const auto fmt = ::json::object(
+                        ::json::field("id", ::json::uint64),
+                        ::json::field("hash", ::json::hex_string),
+                        ::json::field("timestamp", timestamp_json),
+                        ::json::field("total_received", uint64_json_string),
+                        ::json::field("total_sent", uint64_json_string),
+                        ::json::field("unlock_time", ::json::uint64),
+                        ::json::field("height", ::json::uint64),
+                        ::json::optional_field("payment_id", ::json::hex_string),
+                        ::json::field("coinbase", ::json::boolean),
+                        ::json::field("mempool", ::json::boolean),
+                        ::json::field("mixin", ::json::uint32),
+                        ::json::field("spent_outputs", ::json::array(spent_json))
                     );
 
                     epee::span<const std::uint8_t> const* payment_id = nullptr;
@@ -375,14 +376,14 @@ namespace lws
                 }
             };
 
-            static constexpr const auto response = json::object(
-                json::field("total_received", uint64_json_string),
-                json::field("scanned_height", json::uint64),
-                json::field("scanned_block_height", json::uint64),
-                json::field("start_height", json::uint64),
-                json::field("transaction_height", json::uint64),
-                json::field("blockchain_height", json::uint64),
-                json::field("transactions", json::array(transaction_json{}))
+            static constexpr const auto response = ::json::object(
+                ::json::field("total_received", uint64_json_string),
+                ::json::field("scanned_height", ::json::uint64),
+                ::json::field("scanned_block_height", ::json::uint64),
+                ::json::field("start_height", ::json::uint64),
+                ::json::field("transaction_height", ::json::uint64),
+                ::json::field("blockchain_height", ::json::uint64),
+                ::json::field("transactions", ::json::array(transaction_json{}))
             );
 
             std::uint64_t received = 0;
@@ -543,10 +544,10 @@ namespace lws
                 expect<void>
                 operator()(std::ostream& dest, cryptonote::rpc::output_key_and_amount_index const& src) const
                 {
-                    static constexpr const auto fmt = json::object(
-                        json::field("global_index", uint64_json_string),
-                        json::field("public_key", json::hex_string),
-                        json::field("rct", json::hex_string)
+                    static constexpr const auto fmt = ::json::object(
+                        ::json::field("global_index", uint64_json_string),
+                        ::json::field("public_key", ::json::hex_string),
+                        ::json::field("rct", ::json::hex_string)
                     );
                     const auto found = std::lower_bound(keys.begin(), keys.end(), src.key, by_key{});
                     if (found == keys.end() || found->key != src.key)
@@ -563,17 +564,17 @@ namespace lws
                 expect<void>
                 operator()(std::ostream& dest, cryptonote::rpc::amount_with_random_outputs const& src) const
                 {
-                    const auto fmt = json::object(
-                        json::field("amount", uint64_json_string),
-                        json::field("outputs", json::array(random_output_json{keys}))
+                    const auto fmt = ::json::object(
+                        ::json::field("amount", uint64_json_string),
+                        ::json::field("outputs", ::json::array(random_output_json{keys}))
                     );
                     return fmt(dest, src.amount, src.outputs);
                 }
             };
 
-            static constexpr const auto request = json::object(
-                json::field("count", json::uint64), // rpc to daemon is 64-bit :/
-                json::field("amounts", json::array(uint64_json_string))
+            static constexpr const auto request = ::json::object(
+                ::json::field("count", ::json::uint64), // rpc to daemon is 64-bit :/
+                ::json::field("amounts", ::json::array(uint64_json_string))
             );
 
             if (!ctx.logged_in)
@@ -615,8 +616,8 @@ namespace lws
                 return keys_resp.error();
 
             std::sort(keys_resp->keys.begin(), keys_resp->keys.end(), by_key{});
-            const auto response = json::object(
-                json::field("amount_outs", json::array(random_outputs_json{keys_resp->keys}))
+            const auto response = ::json::object(
+                ::json::field("amount_outs", ::json::array(random_outputs_json{keys_resp->keys}))
             );
             return generate_body(response, random_resp->amounts_with_outputs);
         }
@@ -631,19 +632,19 @@ namespace lws
                 expect<void>
                 operator()(std::ostream& dest, std::pair<db::output, std::vector<crypto::key_image>> const& src) const
                 {
-                    static constexpr const auto fmt = json::object(
-                        json::field("amount", uint64_json_string),
-                        json::field("public_key", json::hex_string),
-                        json::field("index", json::uint32),
-                        json::field("global_index", json::uint64),
-                        json::field("tx_id", json::uint64),
-                        json::field("tx_hash", json::hex_string),
-                        json::field("tx_prefix_hash", json::hex_string),
-                        json::field("tx_pub_key", json::hex_string),
-                        json::field("timestamp", timestamp_json),
-                        json::field("height", json::uint64),
-                        json::field("spend_key_images", json::array(json::hex_string)),
-                        json::optional_field("rct", json::hex_string)
+                    static constexpr const auto fmt = ::json::object(
+                        ::json::field("amount", uint64_json_string),
+                        ::json::field("public_key", ::json::hex_string),
+                        ::json::field("index", ::json::uint32),
+                        ::json::field("global_index", ::json::uint64),
+                        ::json::field("tx_id", ::json::uint64),
+                        ::json::field("tx_hash", ::json::hex_string),
+                        ::json::field("tx_prefix_hash", ::json::hex_string),
+                        ::json::field("tx_pub_key", ::json::hex_string),
+                        ::json::field("timestamp", timestamp_json),
+                        ::json::field("height", ::json::uint64),
+                        ::json::field("spend_key_images", ::json::array(::json::hex_string)),
+                        ::json::optional_field("rct", ::json::hex_string)
                     );
 
                     /*! \TODO Sending the public key for the output isn't
@@ -694,13 +695,13 @@ namespace lws
                 }
             };
 
-            static constexpr const auto request = json::object(
-                json::field("address", address_json),
-                json::field("view_key", json::hex_string),
-                json::field("amount", uint64_json_string),
-                json::optional_field("mixin", json::uint32),
-                json::optional_field("use_dust", json::boolean),
-                json::optional_field("dust_threshold", uint64_json_string)
+            static constexpr const auto request = ::json::object(
+                ::json::field("address", address_json),
+                ::json::field("view_key", ::json::hex_string),
+                ::json::field("amount", uint64_json_string),
+                ::json::optional_field("mixin", ::json::uint32),
+                ::json::optional_field("use_dust", ::json::boolean),
+                ::json::optional_field("dust_threshold", uint64_json_string)
             );
 
             expect<rpc::client> client = gclient.clone();
@@ -781,10 +782,10 @@ namespace lws
             if (!resp)
                 return resp.error();
 
-            const auto response = json::object(
-                json::field("per_kb_fee", json::uint64),
-                json::field("amount", uint64_json_string),
-                json::field("outputs", json::array(output_json{spend_public, key}))
+            const auto response = ::json::object(
+                ::json::field("per_kb_fee", ::json::uint64),
+                ::json::field("amount", uint64_json_string),
+                ::json::field("outputs", ::json::array(output_json{spend_public, key}))
             );
 
             return generate_body(response, resp->estimated_fee_per_kb, received, unspent);
@@ -792,15 +793,15 @@ namespace lws
 
         expect<std::string> import_request(rapidjson::Value const& root, db::storage disk, rpc::client const&, context& ctx)
         {
-            static constexpr const auto request = json::object(
-                json::field("address", address_json),
-                json::field("view_key", json::hex_string)
+            static constexpr const auto request = ::json::object(
+                ::json::field("address", address_json),
+                ::json::field("view_key", ::json::hex_string)
             );
-            static constexpr const auto response = json::object(
-                json::field("import_fee", uint64_json_string),
-                json::field("new_request", json::boolean),
-                json::field("request_fulfilled", json::boolean),
-                json::field("status", json::string)
+            static constexpr const auto response = ::json::object(
+                ::json::field("import_fee", uint64_json_string),
+                ::json::field("new_request", ::json::boolean),
+                ::json::field("request_fulfilled", ::json::boolean),
+                ::json::field("status", ::json::string)
             );
 
             bool new_request = false;
@@ -851,13 +852,13 @@ namespace lws
 
         expect<std::string> login(rapidjson::Value const& root, db::storage disk, rpc::client const&, context& ctx)
         {
-            static constexpr const auto request = json::object(
-                json::field("address", address_json),
-                json::field("view_key", json::hex_string),
-                json::field("create_account", json::boolean)
+            static constexpr const auto request = ::json::object(
+                ::json::field("address", address_json),
+                ::json::field("view_key", ::json::hex_string),
+                ::json::field("create_account", ::json::boolean)
             );
-            static constexpr const auto response = json::object(
-                json::field("new_address", json::boolean)
+            static constexpr const auto response = ::json::object(
+                ::json::field("new_address", ::json::boolean)
             );
 
             db::account_address address{};
@@ -894,9 +895,9 @@ namespace lws
 
         expect<std::string> submit_raw_tx(rapidjson::Value const& root, db::storage, rpc::client const& gclient, context& ctx)
         {
-            constexpr const auto request = json::object(json::field("tx", json::string));
+            constexpr const auto request = ::json::object(::json::field("tx", ::json::string));
             constexpr const auto response =
-                json::object(json::field("status", json::string));
+                ::json::object(::json::field("status", ::json::string));
 
             if (!ctx.logged_in)
                 return {lws::error::kNoSuchAccount};
@@ -912,7 +913,7 @@ namespace lws
 
             std::string blob{};
             if (!epee::string_tools::parse_hexstr_to_binbuff(hex, blob))
-                return {json::error::kInvalidHex};
+                return {::json::error::kInvalidHex};
 
             transaction_rpc::Request req{};
             req.relay = true;

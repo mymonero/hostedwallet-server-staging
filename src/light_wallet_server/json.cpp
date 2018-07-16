@@ -30,6 +30,7 @@
 
 #include "light_wallet_server/db/data.h"
 #include "light_wallet_server/db/string.h"
+#include "light_wallet_server/rates.h"
 #include "serialization/new/json_input.h"
 #include "serialization/new/json_output.h"
 
@@ -141,6 +142,41 @@ namespace
         return fmt(
             std::forward<S>(stream),
             value.address, key, value.start_height
+        );
+    }
+
+    template<typename S, typename T>
+    expect<void> rates_format(S&& stream, T& values) noexcept
+    {
+        static constexpr const auto fmt = json::object(
+            json::field("AUD", json::real64),
+            json::field("BRL", json::real64),
+            json::field("BTC", json::real64),
+            json::field("CAD", json::real64),
+            json::field("CHF", json::real64),
+            json::field("CNY", json::real64),
+            json::field("EUR", json::real64),
+            json::field("GBP", json::real64),
+            json::field("HKD", json::real64),
+            json::field("INR", json::real64),
+            json::field("JPY", json::real64),
+            json::field("KRW", json::real64),
+            json::field("MXN", json::real64),
+            json::field("NOK", json::real64),
+            json::field("NZD", json::real64),
+            json::field("SEK", json::real64),
+            json::field("SGD", json::real64),
+            json::field("TRY", json::real64),
+            json::field("USD", json::real64),
+            json::field("RUB", json::real64),
+            json::field("ZAR", json::real64)
+        );
+        return fmt(
+            std::forward<S>(stream), values.AUD, values.BRL, values.BTC,
+            values.CAD, values.CHF, values.CNY, values.EUR, values.GBP,
+            values.HKD, values.INR, values.JPY, values.KRW, values.MXN,
+            values.NOK, values.NZD, values.SEK, values.SGD, values.TRY,
+            values.USD, values.RUB, values.ZAR
         );
     }
 } // anonymous
@@ -283,6 +319,16 @@ namespace json
         db::view_key const* const key =
             show_sensitive ? std::addressof(src.key) : nullptr;
         return request_format(dest, src, key);
+    }
+
+
+    expect<void> rates_::operator()(rapidjson::Value const& src, lws::rates& dest) const noexcept
+    {
+        return rates_format(src, dest);
+    }
+    expect<void> rates_::operator()(std::ostream& dest, lws::rates const& src) const
+    {
+        return rates_format(dest, src);
     }
 } // json
 } // lws

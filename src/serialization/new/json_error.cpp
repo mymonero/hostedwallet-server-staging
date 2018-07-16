@@ -61,6 +61,8 @@ namespace json
                     return "JSON parser could not find required field";
                 case error::kOverflow:
                     return "JSON integer exceeded internal maximum value";
+                case error::kParseFailure:
+                    return "Invalid JSON - parsing failed";
                 case error::kUnexpectedField:
                     return "JSON parser encountered a field that it did not expect";
                 case error::kUnderflow:

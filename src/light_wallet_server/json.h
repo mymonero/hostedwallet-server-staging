@@ -31,6 +31,7 @@
 
 #include "common/expect.h"
 #include "light_wallet_server/db/fwd.h"
+#include "light_wallet_server/fwd.h"
 
 namespace lws
 {
@@ -100,5 +101,13 @@ namespace json
     };
     constexpr const request_info_ request_info{false};
     constexpr const request_info_ request_info_with_key{true};
+
+
+    struct rates_
+    {
+        expect<void> operator()(rapidjson::Value const& src, lws::rates& dest) const noexcept;
+        expect<void> operator()(std::ostream& dest, lws::rates const& src) const;
+    };
+    constexpr const rates_ rates{};
 } // json
 } // lws

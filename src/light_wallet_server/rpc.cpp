@@ -176,7 +176,7 @@ namespace rpc
               , sync_rates()
             {
                 if (std::chrono::minutes{0} < cache_interval)
-                    rates_conn.set_server(json::crypto_compare.host, boost::none, true);
+                    rates_conn.set_server(crypto_compare.host, boost::none, true);
             }
 
             zcontext comm;
@@ -356,16 +356,12 @@ namespace rpc
 
         const http::http_response_info* info = nullptr;
         const bool retrieved =
-            ctx->rates_conn.invoke_get(json::crypto_compare.path, std::chrono::seconds{20}, std::string{}, std::addressof(info)) &&
+            ctx->rates_conn.invoke_get(crypto_compare.path, std::chrono::seconds{20}, std::string{}, std::addressof(info)) &&
             info != nullptr &&
             info->m_response_code == 200;
 
         if (retrieved)
-        {
-            rapidjson::Document doc{};
-            if (rapidjson::ParseResult(doc.Parse(info->m_body.c_str())))
-                fresh = json::crypto_compare(doc);
-        }
+            fresh = crypto_compare(info->m_body);
 
         const boost::unique_lock<boost::mutex> lock{ctx->sync_rates};
         ctx->cache_time = now;

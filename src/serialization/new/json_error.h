@@ -45,6 +45,7 @@ namespace json
         kInvalidHex,        //!< Invalid hex-string
         kMissingField,      //!< Missing field in JSON object
         kOverflow,          //!< Conversion to fixed-width integer overflowed
+        kParseFailure,      //!< Failed to parse JSON
         kUnexpectedField,   //!< An extra, unexpected, field is present
         kUnderflow          //!< Conversion to fixed-width integer underflowed
     };
