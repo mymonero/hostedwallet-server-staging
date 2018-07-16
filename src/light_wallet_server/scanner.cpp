@@ -266,7 +266,6 @@ namespace lws
                         }
                     }
 
-                    MDEBUG("Found match for " << user.address() << " on tx " << tx_hash << " for " << money{amount} << " XMR");
                     user.add_out(
                         db::output{
                             db::transaction_link{height, tx_hash},
