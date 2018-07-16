@@ -206,7 +206,7 @@ TEST(Span, ImmutableConstruction)
 
   EXPECT_TRUE(std::is_constructible<epee::span<const inherited>>());
   EXPECT_TRUE((std::is_constructible<epee::span<const inherited>, const inherited*, std::size_t>()));
-  EXPECT_FALSE((std::is_constructible<epee::span<const inherited>, inherited*, std::size_t>()));
+  EXPECT_TRUE((std::is_constructible<epee::span<const inherited>, inherited*, std::size_t>()));
   EXPECT_FALSE((std::is_constructible<epee::span<const inherited>, const no_conversion*, std::size_t>()));
 
   EXPECT_FALSE((can_construct<epee::span<const char>, std::string>()));

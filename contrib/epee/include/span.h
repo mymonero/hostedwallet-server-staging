@@ -53,6 +53,15 @@ namespace epee
   template<typename T>
   class span
   {
+    template<typename U>
+    static constexpr bool safe_conversion() noexcept
+    {
+      // Allow exact matches or `T*` -> `const T*`.
+      using with_const = typename std::add_const<U>::type;
+      return std::is_same<T, U>() ||
+        (std::is_const<T>() && std::is_same<T, with_const>());
+    }
+
   public:
     using value_type = T;
     using size_type = std::size_t;
@@ -68,7 +77,7 @@ namespace epee
     constexpr span(std::nullptr_t) noexcept : span() {}
 
     //! Prevent derived-to-base conversions; invalid in this context.
-    template<typename U, typename = typename std::enable_if<std::is_same<U, T>::value>::type>
+    template<typename U, typename = typename std::enable_if<safe_conversion<U>()>::type>
     constexpr span(U* const src_ptr, const std::size_t count) noexcept
       : ptr(src_ptr), len(count) {}
 
