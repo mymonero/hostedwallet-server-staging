@@ -941,7 +941,6 @@ void toJsonValue(rapidjson::Document& doc, const rct::rctSig& sig, rapidjson::Va
   INSERT_INTO_JSON_OBJECT(val, doc, type, sig.type);
   INSERT_INTO_JSON_OBJECT(val, doc, message, sig.message);
   INSERT_INTO_JSON_OBJECT(val, doc, mixRing, sig.mixRing);
-  INSERT_INTO_JSON_OBJECT(val, doc, pseudoOuts, sig.pseudoOuts);
   INSERT_INTO_JSON_OBJECT(val, doc, ecdhInfo, sig.ecdhInfo);
   INSERT_INTO_JSON_OBJECT(val, doc, outPk, sig.outPk);
   INSERT_INTO_JSON_OBJECT(val, doc, txnFee, sig.txnFee);
@@ -954,11 +953,9 @@ void fromJsonValue(const rapidjson::Value& val, rct::rctSig& sig)
   {
     throw WRONG_TYPE("json object");
   }
-
   GET_FROM_JSON_OBJECT(val, sig.type, type);
   GET_FROM_JSON_OBJECT(val, sig.message, message);
   GET_FROM_JSON_OBJECT(val, sig.mixRing, mixRing);
-  GET_FROM_JSON_OBJECT(val, sig.pseudoOuts, pseudoOuts);
   GET_FROM_JSON_OBJECT(val, sig.ecdhInfo, ecdhInfo);
   GET_FROM_JSON_OBJECT(val, sig.outPk, outPk);
   GET_FROM_JSON_OBJECT(val, sig.txnFee, txnFee);
@@ -1009,6 +1006,7 @@ void toJsonValue(rapidjson::Document& doc, const rct::rctSigPrunable& sig, rapid
   INSERT_INTO_JSON_OBJECT(val, doc, rangeSigs, sig.rangeSigs);
   INSERT_INTO_JSON_OBJECT(val, doc, bulletproofs, sig.bulletproofs);
   INSERT_INTO_JSON_OBJECT(val, doc, MGs, sig.MGs);
+  INSERT_INTO_JSON_OBJECT(val, doc, pseudoOuts, sig.pseudoOuts);
 }
 
 void fromJsonValue(const rapidjson::Value& val, rct::rctSigPrunable& sig)
@@ -1021,6 +1019,7 @@ void fromJsonValue(const rapidjson::Value& val, rct::rctSigPrunable& sig)
   GET_FROM_JSON_OBJECT(val, sig.rangeSigs, rangeSigs);
   GET_FROM_JSON_OBJECT(val, sig.bulletproofs, bulletproofs);
   GET_FROM_JSON_OBJECT(val, sig.MGs, MGs);
+  GET_FROM_JSON_OBJECT(val, sig.pseudoOuts, pseudoOuts);
 }
 
 void toJsonValue(rapidjson::Document& doc, const rct::rangeSig& sig, rapidjson::Value& val)
@@ -1098,10 +1097,10 @@ void toJsonValue(rapidjson::Document& doc, const rct::boroSig& sig, rapidjson::V
   val.SetObject();
 
   std::vector<rct::key> keyVector(sig.s0, std::end(sig.s0));
-  INSERT_INTO_JSON_OBJECT(val, doc, s0, sig.s0);
+  INSERT_INTO_JSON_OBJECT(val, doc, s0, keyVector);
 
   keyVector.assign(sig.s1, std::end(sig.s1));
-  INSERT_INTO_JSON_OBJECT(val, doc, s1, sig.s1);
+  INSERT_INTO_JSON_OBJECT(val, doc, s1, keyVector);
 
   INSERT_INTO_JSON_OBJECT(val, doc, ee, sig.ee);
 }

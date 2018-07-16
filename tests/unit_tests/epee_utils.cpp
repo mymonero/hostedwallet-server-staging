@@ -166,11 +166,16 @@ TEST(Span, Traits)
 TEST(Span, MutableConstruction)
 {
   struct no_conversion{};
+  struct inherited : no_conversion {};
 
   EXPECT_TRUE(std::is_constructible<epee::span<char>>());
   EXPECT_TRUE((std::is_constructible<epee::span<char>, char*, std::size_t>()));
   EXPECT_FALSE((std::is_constructible<epee::span<char>, const char*, std::size_t>()));
   EXPECT_FALSE((std::is_constructible<epee::span<char>, unsigned char*, std::size_t>()));
+
+  EXPECT_TRUE(std::is_constructible<epee::span<inherited>>());
+  EXPECT_TRUE((std::is_constructible<epee::span<inherited>, inherited*, std::size_t>()));
+  EXPECT_FALSE((std::is_constructible<epee::span<inherited>, no_conversion*, std::size_t>()));
 
   EXPECT_TRUE((can_construct<epee::span<char>, std::nullptr_t>()));
   EXPECT_TRUE((can_construct<epee::span<char>, char(&)[1]>()));
@@ -193,11 +198,17 @@ TEST(Span, MutableConstruction)
 TEST(Span, ImmutableConstruction)
 {
   struct no_conversion{};
+  struct inherited : no_conversion {};
 
   EXPECT_TRUE(std::is_constructible<epee::span<const char>>());
   EXPECT_TRUE((std::is_constructible<epee::span<const char>, char*, std::size_t>()));
   EXPECT_TRUE((std::is_constructible<epee::span<const char>, const char*, std::size_t>()));
   EXPECT_FALSE((std::is_constructible<epee::span<const char>, unsigned char*, std::size_t>()));
+
+  EXPECT_TRUE(std::is_constructible<epee::span<const inherited>>());
+  EXPECT_TRUE((std::is_constructible<epee::span<const inherited>, const inherited*, std::size_t>()));
+  EXPECT_TRUE((std::is_constructible<epee::span<const inherited>, inherited*, std::size_t>()));
+  EXPECT_FALSE((std::is_constructible<epee::span<const inherited>, const no_conversion*, std::size_t>()));
 
   EXPECT_FALSE((can_construct<epee::span<const char>, std::string>()));
   EXPECT_FALSE((can_construct<epee::span<const char>, std::vector<char>>()));
@@ -231,7 +242,6 @@ TEST(Span, NoExcept)
   const epee::span<char> clvalue(data);
   EXPECT_TRUE(noexcept(epee::span<char>()));
   EXPECT_TRUE(noexcept(epee::span<char>(nullptr)));
-  EXPECT_TRUE(noexcept(epee::span<char>(nullptr, 0)));
   EXPECT_TRUE(noexcept(epee::span<char>(data)));
   EXPECT_TRUE(noexcept(epee::span<char>(lvalue)));
   EXPECT_TRUE(noexcept(epee::span<char>(clvalue)));
