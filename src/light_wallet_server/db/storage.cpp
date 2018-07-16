@@ -1009,6 +1009,27 @@ namespace db
         }
     } // anonymous
 
+    expect<void> storage::rollback(block_id height)
+    {
+        MONERO_PRECOND(db != nullptr);
+
+        return db->try_write([this, height] (MDB_txn& txn) -> expect<void>
+        {
+            cursor::blocks blocks_cur;
+            MONERO_CHECK(check_cursor(txn, this->db->tables.blocks, blocks_cur));
+
+            MDB_val key = lmdb::to_val(blocks_version);
+            MDB_val value = lmdb::to_val(height);
+            const int err = mdb_cursor_get(blocks_cur.get(), &key, &value, MDB_GET_BOTH);
+            if (err == MDB_NOTFOUND)
+                return success();
+            if (err)
+                return {lmdb::error(err)};
+
+            return rollback_chain(this->db->tables, txn, *blocks_cur, height);
+        });
+    }
+
     expect<void> storage::sync_chain(block_id height, std::list<crypto::hash> const& hashes)
     {
         MONERO_PRECOND(!hashes.empty());

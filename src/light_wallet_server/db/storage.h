@@ -171,6 +171,9 @@ namespace db
         //! \return A copy of the LMDB environment, but not reusable txn/cursors.
         storage clone() const noexcept;
 
+        //! Rollback chain and accounts to `height`.
+        expect<void> rollback(block_id height);
+
         /*!
             Sync the local blockchain with a remote version. Pops user txes
             if reorg detected.

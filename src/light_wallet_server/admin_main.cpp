@@ -253,6 +253,20 @@ namespace
         MONERO_UNWRAP("JSON out", updated_list_json(out, epee::to_span(updated)));
     }
 
+    void rollback(program prog, std::ostream& out)
+    {
+        static constexpr const auto new_height_json = json::object(
+            json::field("new_height", json::uint64)
+        );
+
+        if (prog.arguments.size() != 1)
+            throw std::runtime_error{"rollback requires 1 argument"};
+
+        const auto height = lws::db::block_id(std::stoull(prog.arguments[0]));
+        MONERO_UNWRAP("chain rollback", prog.disk.rollback(height));
+        MONERO_UNWRAP("JSON out", new_height_json(out, height));
+    }
+
     struct command
     {
         char const* const name;
@@ -268,7 +282,8 @@ namespace
         {"list_requests",         &list_requests,   ""},
         {"modify_account_status", &modify_account,  "<\"active\"|\"inactive\"|\"hidden\"> <base58 address> [base 58 address]..."},
         {"reject_requests",       &reject_requests, "<\"create\"|\"import\"> <base58 address> [base 58 address]..."},
-        {"rescan",                &rescan,          "<height> <base58 address> [base 58 address]..."}
+        {"rescan",                &rescan,          "<height> <base58 address> [base 58 address]..."},
+        {"rollback",              &rollback,        "<height>"}
     };
 
     void print_help(std::ostream& out)
