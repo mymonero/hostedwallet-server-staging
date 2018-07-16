@@ -53,7 +53,6 @@ namespace json
     {
         const bool show_sensitive;
 
-        expect<void> operator()(rapidjson::Value const& src, db::account& dest) const;
         expect<void> operator()(std::ostream& dest, db::account const& src) const;
     };
     constexpr const account_ account{false};
@@ -97,7 +96,6 @@ namespace json
     {
         const bool show_sensitive;
 
-        expect<void> operator()(rapidjson::Value const& src, db::request_info& dest) const;
         expect<void> operator()(std::ostream& dest, db::request_info const& src) const;
     };
     constexpr const request_info_ request_info{false};

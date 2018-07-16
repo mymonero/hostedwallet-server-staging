@@ -33,122 +33,122 @@
 #include "serialization/new/json_input.h"
 #include "serialization/new/json_output.h"
 
+namespace
+{
+    template<typename S, typename T>
+    expect<void> address_format(S&& stream, T& value)
+    {
+        static constexpr const auto fmt = json::object(
+            json::field("spend_public", json::hex_string),
+            json::field("view_public", json::hex_string)
+        );
+        return fmt(
+            std::forward<S>(stream), value.spend_public, value.view_public
+        );
+    }
+
+    template<typename S, typename T1, typename T2>
+    expect<void> account_format(S&& stream, T1& value, T2& key)
+    {
+        static constexpr const auto fmt = json::object(
+            json::field("id", json::uint32),
+            json::field("address", lws::json::account_address),
+            json::optional_field("view_key", json::hex_string),
+            json::field("scan_height", json::uint64),
+            json::field("start_height", json::uint64),
+            json::field("access_time", json::uint32),
+            json::field("creation_time", json::uint32)
+        );
+        return fmt(
+            std::forward<S>(stream), 
+            value.id,
+            value.address,
+            key,
+            value.scan_height,
+            value.start_height,
+            value.access,
+            value.creation
+        );
+    }
+
+    template<typename S, typename T>
+    expect<void> block_info_format(S&& stream, T& value)
+    {
+        static constexpr const auto fmt = json::object(
+            json::field("height", json::uint64),
+            json::field("hash", json::hex_string)
+        );
+        return fmt(std::forward<S>(stream), value.id, value.hash);
+    }
+
+    template<typename S, typename T>
+    expect<void> output_id_format(S&& stream, T& value)
+    {
+        static constexpr const auto fmt = json::object(
+            json::field("high", json::uint64),
+            json::field("low", json::uint64)
+        );
+        return fmt(std::forward<S>(stream), value.high, value.low);
+    }
+
+    template<typename S, typename T1, typename T2>
+    expect<void> spend_format(S&& stream, T1& value, T2& payment_id)
+    {
+        static constexpr const auto fmt = json::object(
+            json::field("height", json::uint64),
+            json::field("tx_hash", json::hex_string),
+            json::field("key_image", json::hex_string),
+            json::field("output_id", lws::json::output_id),
+            json::field("timestamp", json::uint64),
+            json::field("unlock_time", json::uint64),
+            json::field("mixin_count", json::uint32),
+            json::optional_field("payment_id", json::hex_string)
+        );
+        return fmt(
+            std::forward<S>(stream),
+            value.link.height,
+            value.link.tx_hash,
+            value.image,
+            value.source,
+            value.timestamp,
+            value.unlock_time,
+            value.mixin_count,
+            payment_id
+        );
+    }
+
+    template<typename S, typename T>
+    expect<void> image_format(S&& stream, T& value)
+    {
+        static constexpr const auto fmt = json::object(
+            json::field("key_image", json::hex_string),
+            json::field("tx_hash", json::hex_string),
+            json::field("height", json::uint64)
+        );
+        return fmt(
+            std::forward<S>(stream), value.value, value.link.tx_hash, value.link.height
+        );
+    }
+
+    template<typename S, typename T1, typename T2>
+    expect<void> request_format(S&& stream, T1& value, T2& key)
+    {
+        static constexpr const auto fmt = json::object(
+            json::field("address", lws::json::account_address),
+            json::optional_field("view_key", json::hex_string),
+            json::field("start_height", json::uint64)
+        );
+        return fmt(
+            std::forward<S>(stream),
+            value.address, key, value.start_height
+        );
+    }
+} // anonymous
+
 namespace lws
 {
 namespace json
 {
-    namespace
-    {
-        template<typename S, typename T>
-        expect<void> address_format(S&& stream, T& value)
-        {
-            static constexpr const auto fmt = ::json::object(
-                ::json::field("spend_public", ::json::hex_string),
-                ::json::field("view_public", ::json::hex_string)
-            );
-            return fmt(
-                std::forward<S>(stream), value.spend_public, value.view_public
-            );
-        }
-
-        template<typename S, typename T1, typename T2>
-        expect<void> account_format(S&& stream, T1& value, T2& key)
-        {
-            static constexpr const auto fmt = ::json::object(
-                ::json::field("id", ::json::uint32),
-                ::json::field("address", json::account_address),
-                ::json::optional_field("view_key", ::json::hex_string),
-                ::json::field("scan_height", ::json::uint64),
-                ::json::field("start_height", ::json::uint64),
-                ::json::field("access_time", ::json::uint32),
-                ::json::field("creation_time", ::json::uint32)
-            );
-            return fmt(
-                std::forward<S>(stream), 
-                value.id,
-                value.address,
-                key,
-                value.scan_height,
-                value.start_height,
-                value.access,
-                value.creation
-            );
-        }
-
-        template<typename S, typename T>
-        expect<void> block_info_format(S&& stream, T& value)
-        {
-            static constexpr const auto fmt = ::json::object(
-                ::json::field("height", ::json::uint64),
-                ::json::field("hash", ::json::hex_string)
-            );
-            return fmt(std::forward<S>(stream), value.id, value.hash);
-        }
-
-        template<typename S, typename T>
-        expect<void> output_id_format(S&& stream, T& value)
-        {
-            static constexpr const auto fmt = ::json::object(
-                ::json::field("high", ::json::uint64),
-                ::json::field("low", ::json::uint64)
-            );
-            return fmt(std::forward<S>(stream), value.high, value.low);
-        }
-
-        template<typename S, typename T1, typename T2>
-        expect<void> spend_format(S&& stream, T1& value, T2& payment_id)
-        {
-            static constexpr const auto fmt = ::json::object(
-                ::json::field("height", ::json::uint64),
-                ::json::field("tx_hash", ::json::hex_string),
-                ::json::field("key_image", ::json::hex_string),
-                ::json::field("output_id", json::output_id),
-                ::json::field("timestamp", ::json::uint64),
-                ::json::field("unlock_time", ::json::uint64),
-                ::json::field("mixin_count", ::json::uint32),
-                ::json::optional_field("payment_id", ::json::hex_string)
-            );
-            return fmt(
-                std::forward<S>(stream),
-                value.link.height,
-                value.link.tx_hash,
-                value.image,
-                value.source,
-                value.timestamp,
-                value.unlock_time,
-                value.mixin_count,
-                payment_id
-            );
-        }
-
-        template<typename S, typename T>
-        expect<void> image_format(S&& stream, T& value)
-        {
-            static constexpr const auto fmt = ::json::object(
-                ::json::field("key_image", ::json::hex_string),
-                ::json::field("tx_hash", ::json::hex_string),
-                ::json::field("height", ::json::uint64)
-            );
-            return fmt(
-                std::forward<S>(stream), value.value, value.link.tx_hash, value.link.height
-            );
-        }
-
-        template<typename S, typename T1, typename T2>
-        expect<void> request_format(S&& stream, T1& value, T2& key)
-        {
-            static constexpr const auto fmt = ::json::object(
-                ::json::field("address", json::account_address),
-                ::json::optional_field("view_key", ::json::hex_string),
-                ::json::field("start_height", ::json::uint64)
-            );
-            return fmt(
-                std::forward<S>(stream),
-                value.address, key, value.start_height
-            );
-        }
-    } // anonymous
-
     expect<void> status_::operator()(std::ostream& dest, db::account_status src) const
     {
         char const* const value = db::status_string(src);
@@ -165,16 +165,6 @@ namespace json
         return address_format(dest, src);
     }
 
-    expect<void> account_::operator()(rapidjson::Value const& src, db::account& dest) const
-    {
-        boost::optional<db::view_key> key;
-        MONERO_CHECK(account_format(src, dest, key));
-       // if (show_sensitive && !key)
-//            return {lws::error::kInvalidKey};
-        if (key)
-            dest.key = *key;
-        return success();
-    }
     expect<void> account_::operator()(std::ostream& dest, db::account const& src) const
     {
 
@@ -288,16 +278,6 @@ namespace json
         return image_format(dest, src);
     }
 
-    expect<void> request_info_::operator()(rapidjson::Value const& src, db::request_info& dest) const
-    {
-        boost::optional<db::view_key> key;
-        MONERO_CHECK(request_format(src, dest, key));
-//        if (show_sensitive && !key)
-//            return {lws::error::kInvalidKey};
-        if (key)
-            dest.key = *key;
-        return success();
-    }
     expect<void> request_info_::operator()(std::ostream& dest, db::request_info const& src) const
     {
         db::view_key const* const key =
