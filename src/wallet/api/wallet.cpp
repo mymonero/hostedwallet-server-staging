@@ -372,6 +372,7 @@ WalletImpl::WalletImpl(NetworkType nettype)
     , m_trustedDaemon(false)
     , m_wallet2Callback(nullptr)
     , m_recoveringFromSeed(false)
+    , m_recoveringFromDevice(false)
     , m_synchronized(false)
     , m_rebuildWalletCache(false)
     , m_is_connected(false)
@@ -419,6 +420,7 @@ bool WalletImpl::create(const std::string &path, const std::string &password, co
 
     clearStatus();
     m_recoveringFromSeed = false;
+    m_recoveringFromDevice = false;
     bool keys_file_exists;
     bool wallet_file_exists;
     tools::wallet2::wallet_exists(path, keys_file_exists, wallet_file_exists);
@@ -554,18 +556,26 @@ bool WalletImpl::recoverFromKeysWithPassword(const std::string &path,
     }
 
     // parse view secret key
+    bool has_viewkey = true;
+    crypto::secret_key viewkey;
     if (viewkey_string.empty()) {
-        setStatusError(tr("No view key supplied, cancelled"));
-        return false;
+        if(has_spendkey) {
+          has_viewkey = false;
+        }
+        else {
+          setStatusError(tr("Neither view key nor spend key supplied, cancelled"));
+          return false;
+        }
     }
-    cryptonote::blobdata viewkey_data;
-    if(!epee::string_tools::parse_hexstr_to_binbuff(viewkey_string, viewkey_data) || viewkey_data.size() != sizeof(crypto::secret_key))
-    {
-        setStatusError(tr("failed to parse secret view key"));
-        return false;
+    if(has_viewkey) {
+      cryptonote::blobdata viewkey_data;
+      if(!epee::string_tools::parse_hexstr_to_binbuff(viewkey_string, viewkey_data) || viewkey_data.size() != sizeof(crypto::secret_key))
+      {
+          setStatusError(tr("failed to parse secret view key"));
+          return false;
+      }
+      viewkey = *reinterpret_cast<const crypto::secret_key*>(viewkey_data.data());
     }
-    crypto::secret_key viewkey = *reinterpret_cast<const crypto::secret_key*>(viewkey_data.data());
-
     // check the spend and view keys match the given address
     crypto::public_key pkey;
     if(has_spendkey) {
@@ -578,25 +588,31 @@ bool WalletImpl::recoverFromKeysWithPassword(const std::string &path,
             return false;
         }
     }
-    if (!crypto::secret_key_to_public_key(viewkey, pkey)) {
-        setStatusError(tr("failed to verify secret view key"));
-        return false;
-    }
-    if (info.address.m_view_public_key != pkey) {
-        setStatusError(tr("view key does not match address"));
-        return false;
+    if(has_viewkey) {
+       if (!crypto::secret_key_to_public_key(viewkey, pkey)) {
+           setStatusError(tr("failed to verify secret view key"));
+           return false;
+       }
+       if (info.address.m_view_public_key != pkey) {
+           setStatusError(tr("view key does not match address"));
+           return false;
+       }
     }
 
     try
     {
-        if (has_spendkey) {
+        if (has_spendkey && has_viewkey) {
             m_wallet->generate(path, password, info.address, spendkey, viewkey);
-            setSeedLanguage(language);
-            LOG_PRINT_L1("Generated new wallet from keys with seed language: " + language);
+            LOG_PRINT_L1("Generated new wallet from spend key and view key");
         }
-        else {
+        if(!has_spendkey && has_viewkey) {
             m_wallet->generate(path, password, info.address, viewkey);
             LOG_PRINT_L1("Generated new view only wallet from keys");
+        }
+        if(has_spendkey && !has_viewkey) {
+           m_wallet->generate(path, password, spendkey, true, false, false);
+           setSeedLanguage(language);
+           LOG_PRINT_L1("Generated deterministic wallet from spend key with seed language: " + language);
         }
         
     }
@@ -607,11 +623,28 @@ bool WalletImpl::recoverFromKeysWithPassword(const std::string &path,
     return true;
 }
 
+bool WalletImpl::recoverFromDevice(const std::string &path, const std::string &password, const std::string &device_name)
+{
+    clearStatus();
+    m_recoveringFromSeed = false;
+    m_recoveringFromDevice = true;
+    try
+    {
+        m_wallet->restore(path, password, device_name);
+        LOG_PRINT_L1("Generated new wallet from device: " + device_name);
+    }
+    catch (const std::exception& e) {
+        setStatusError(string(tr("failed to generate new wallet: ")) + e.what());
+        return false;
+    }
+    return true;
+}
 
 bool WalletImpl::open(const std::string &path, const std::string &password)
 {
     clearStatus();
     m_recoveringFromSeed = false;
+    m_recoveringFromDevice = false;
     try {
         // TODO: handle "deprecated"
         // Check if wallet cache exists
@@ -649,6 +682,7 @@ bool WalletImpl::recover(const std::string &path, const std::string &password, c
     }
 
     m_recoveringFromSeed = true;
+    m_recoveringFromDevice = false;
     crypto::secret_key recovery_key;
     std::string old_language;
     if (!crypto::ElectrumWords::words_to_bytes(seed, recovery_key, old_language)) {
@@ -687,6 +721,7 @@ bool WalletImpl::close(bool store)
         LOG_PRINT_L1("Calling wallet::stop...");
         m_wallet->stop();
         LOG_PRINT_L1("wallet::stop done");
+        m_wallet->deinit();
         result = true;
         clearStatus();
     } catch (const std::exception &e) {
@@ -868,6 +903,16 @@ void WalletImpl::setRefreshFromBlockHeight(uint64_t refresh_from_block_height)
 void WalletImpl::setRecoveringFromSeed(bool recoveringFromSeed)
 {
     m_recoveringFromSeed = recoveringFromSeed;
+}
+
+void WalletImpl::setRecoveringFromDevice(bool recoveringFromDevice)
+{
+    m_recoveringFromDevice = recoveringFromDevice;
+}
+
+void WalletImpl::setSubaddressLookahead(uint32_t major, uint32_t minor)
+{
+    m_wallet->set_subaddress_lookahead(major, minor);
 }
 
 uint64_t WalletImpl::balance(uint32_t accountIndex) const
@@ -1921,7 +1966,7 @@ void WalletImpl::doRefresh()
         // Syncing daemon and refreshing wallet simultaneously is very resource intensive.
         // Disable refresh if wallet is disconnected or daemon isn't synced.
         if (m_wallet->light_wallet() || daemonSynced()) {
-            m_wallet->refresh();
+            m_wallet->refresh(trustedDaemon());
             if (!m_synchronized) {
                 m_synchronized = true;
             }
@@ -1982,7 +2027,7 @@ bool WalletImpl::isNewWallet() const
     // with the daemon (pull hashes instead of pull blocks).
     // If wallet cache is rebuilt, creation height stored in .keys is used.
     // Watch only wallet is a copy of an existing wallet. 
-    return !(blockChainHeight() > 1 || m_recoveringFromSeed || m_rebuildWalletCache) && !watchOnly();
+    return !(blockChainHeight() > 1 || m_recoveringFromSeed || m_recoveringFromDevice || m_rebuildWalletCache) && !watchOnly();
 }
 
 bool WalletImpl::doInit(const string &daemon_address, uint64_t upper_transaction_size_limit, bool ssl)
