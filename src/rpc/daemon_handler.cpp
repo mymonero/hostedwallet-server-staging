@@ -106,7 +106,7 @@ namespace rpc
       for (const auto& blob : it->second)
       {
         bwt.transactions.emplace_back();
-        if (!parse_and_validate_tx_from_blob(blob, bwt.transactions.back()))
+        if (!parse_and_validate_tx_from_blob(blob.second, bwt.transactions.back()))
         {
           res.blocks.clear();
           res.output_indices.clear();

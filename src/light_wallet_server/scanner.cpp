@@ -122,17 +122,6 @@ namespace lws
             }
         };
 
-        //! delays creation of temporary string in case DEBUG messages are being skipped
-        struct money
-        {
-            std::uint64_t amount;
-        };
-        std::ostream& operator<<(std::ostream& out, money const src)
-        {
-           return out << cryptonote::print_money(src.amount);
-        }
-
-
         void scan_transaction(
             epee::span<lws::account> users,
             const db::block_id height,
@@ -685,17 +674,15 @@ namespace lws
             if (resp->hashes.size() <= 1 || resp->hashes.back() == req.known_hashes.front())
                 return client;
 
-            MONERO_CHECK(disk.sync_chain(db::block_id(resp->start_height), resp->hashes));
+            MONERO_CHECK(disk.sync_chain(db::block_id(resp->start_height), epee::to_span(resp->hashes)));
 
             req.known_hashes.erase(req.known_hashes.begin(), --(req.known_hashes.end()));
-            const auto loc = req.known_hashes.begin();
             for (std::size_t num = 0; num < 10; ++num)
             {
                 if (resp->hashes.empty())
                     break;
-                req.known_hashes.splice(
-                    loc, resp->hashes, --(resp->hashes.end()), resp->hashes.end()
-                );
+              
+                req.known_hashes.insert(--(req.known_hashes.end()), resp->hashes.back());
             }
         }
 

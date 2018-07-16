@@ -1030,12 +1030,12 @@ namespace db
         });
     }
 
-    expect<void> storage::sync_chain(block_id height, std::list<crypto::hash> const& hashes)
+    expect<void> storage::sync_chain(block_id height, epee::span<const crypto::hash> hashes)
     {
         MONERO_PRECOND(!hashes.empty());
         MONERO_PRECOND(db != nullptr);
 
-        return db->try_write([this, height, &hashes] (MDB_txn& txn) -> expect<void>
+        return db->try_write([this, height, hashes] (MDB_txn& txn) -> expect<void>
         {
             cursor::blocks blocks_cur;
             MONERO_CHECK(check_cursor(txn, this->db->tables.blocks, blocks_cur));
@@ -1045,14 +1045,15 @@ namespace db
                 return hash.error();
 
             // the first entry should always match on in the DB
-            if (*hash != hashes.front())
+            if (*hash != *(hashes.begin()))
                 return {lws::error::kBadBlockchain};
 
             MDB_val key{};
             MDB_val value{};
 
             std::uint64_t current = std::uint64_t(height) + 1;
-            auto chain = boost::make_iterator_range(++hashes.begin(), hashes.end());
+            auto first = hashes.begin();
+            auto chain = boost::make_iterator_range(++first, hashes.end());
             for ( ; !chain.empty(); chain.advance_begin(1), ++current)
             {
                 const int err = mdb_cursor_get(blocks_cur.get(), &key, &value, MDB_NEXT_DUP);

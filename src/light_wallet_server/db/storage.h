@@ -183,7 +183,7 @@ namespace db
 
             \return True if the local blockchain is correctly synced.
         */
-        expect<void> sync_chain(block_id height, std::list<crypto::hash> const& hashes);
+        expect<void> sync_chain(block_id height, epee::span<const crypto::hash> hashes);
 
         //! Bump the last access time of `address` to the current time.
         expect<void> update_access_time(account_address const& address) noexcept;
