@@ -54,6 +54,7 @@ set(unit_tests_sources
   hashchain.cpp
   http.cpp
   keccak.cpp
+  lmdb.cpp
   main.cpp
   memwipe.cpp
   mlocker.cpp
@@ -95,6 +96,7 @@ target_link_libraries(unit_tests
     cryptonote_protocol
     cryptonote_core
     blockchain_db
+    lmdb_lib
     rpc
     serialization
     wallet
