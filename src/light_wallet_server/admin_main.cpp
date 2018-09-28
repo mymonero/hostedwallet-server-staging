@@ -138,13 +138,13 @@ namespace
             throw std::runtime_error{"accept_requests requires 2 or more arguments"};
 
         const lws::db::request req =
-            MONERO_UNWRAP("Request type", lws::db::request_string(prog.arguments[0]));
+            MONERO_UNWRAP(lws::db::request_string(prog.arguments[0]));
         std::vector<lws::db::account_address> addresses =
             get_addresses(epee::to_span(prog.arguments));
 
         const std::vector<lws::db::account_address> updated =
             prog.disk.accept_requests(req, epee::to_span(addresses)).value();
-        MONERO_UNWRAP("JSON out", updated_list_json(out, epee::to_span(updated)));
+        MONERO_UNWRAP(updated_list_json(out, epee::to_span(updated)));
     }
 
     void add_account(program prog, std::ostream& out)
@@ -157,8 +157,8 @@ namespace
         };
         const crypto::secret_key key{get_key(prog.arguments[1])};
 
-        MONERO_UNWRAP("Store account", prog.disk.add_account(address[0], key));
-        MONERO_UNWRAP("JSON out", updated_list_json(out, address));
+        MONERO_UNWRAP(prog.disk.add_account(address[0], key));
+        MONERO_UNWRAP(updated_list_json(out, address));
     }
 
     void debug_database(program prog, std::ostream& out)
@@ -181,7 +181,7 @@ namespace
 
         auto reader = prog.disk.start_read().value();
         auto stream = reader.get_accounts().value();
-        MONERO_UNWRAP("JSON out", fmt(out, stream.make_range()));
+        MONERO_UNWRAP(fmt(out, stream.make_range()));
     }
 
     void list_requests(program prog, std::ostream& out)
@@ -207,7 +207,7 @@ namespace
 
         auto reader = prog.disk.start_read().value();
         auto stream = reader.get_requests().value();
-        MONERO_UNWRAP("JSON out", fmt(out, stream.make_range()));
+        MONERO_UNWRAP(fmt(out, stream.make_range()));
     }
 
     void modify_account(program prog, std::ostream& out)
@@ -223,7 +223,7 @@ namespace
         const std::vector<lws::db::account_address> updated =
             prog.disk.change_status(status, epee::to_span(addresses)).value();
 
-        MONERO_UNWRAP("JSON out", updated_list_json(out, epee::to_span(updated)));
+        MONERO_UNWRAP(updated_list_json(out, epee::to_span(updated)));
     }
 
     void reject_requests(program prog, std::ostream& out)
@@ -236,7 +236,7 @@ namespace
         std::vector<lws::db::account_address> addresses =
             get_addresses(epee::to_span(prog.arguments));
 
-        MONERO_UNWRAP("Drop rejected requests", prog.disk.reject_requests(req, epee::to_span(addresses)));
+        MONERO_UNWRAP(prog.disk.reject_requests(req, epee::to_span(addresses)));
     }
 
     void rescan(program prog, std::ostream& out)
@@ -250,7 +250,7 @@ namespace
 
         const std::vector<lws::db::account_address> updated =
             prog.disk.rescan(height, epee::to_span(addresses)).value();
-        MONERO_UNWRAP("JSON out", updated_list_json(out, epee::to_span(updated)));
+        MONERO_UNWRAP(updated_list_json(out, epee::to_span(updated)));
     }
 
     void rollback(program prog, std::ostream& out)
@@ -263,8 +263,8 @@ namespace
             throw std::runtime_error{"rollback requires 1 argument"};
 
         const auto height = lws::db::block_id(std::stoull(prog.arguments[0]));
-        MONERO_UNWRAP("chain rollback", prog.disk.rollback(height));
-        MONERO_UNWRAP("JSON out", new_height_json(out, height));
+        MONERO_UNWRAP(prog.disk.rollback(height));
+        MONERO_UNWRAP(new_height_json(out, height));
     }
 
     struct command

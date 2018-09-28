@@ -20,7 +20,7 @@ target_link_libraries(light_wallet_server
     light_wallet_server-db
     light_wallet_server-lib
     lmdb-lib
-    rpc
+    daemon_messages
     ${Boost_CHRONO_LIBRARY}
     ${Boost_PROGRAM_OPTIONS_LIBRARY}
     ${Boost_THREAD_LIBRARY}

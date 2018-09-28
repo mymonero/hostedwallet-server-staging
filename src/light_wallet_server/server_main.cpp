@@ -177,9 +177,7 @@ namespace
         auto client = lws::scanner::sync(disk.clone(), ctx.connect().value()).value();
 
         lws::rest_server server{disk.clone(), std::move(client)};
-        MONERO_UNWRAP(
-            "REST server start", server.run(prog.rest_server, prog.rest_threads)
-        );
+        MONERO_UNWRAP(server.run(prog.rest_server, prog.rest_threads));
         MINFO("Listening for REST clients at " << prog.rest_server);
 
         // blocks until SIGINT

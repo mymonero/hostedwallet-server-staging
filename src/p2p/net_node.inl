@@ -402,6 +402,9 @@ namespace nodetool
       full_addrs.insert("162.210.173.150:38080");
       full_addrs.insert("162.210.173.151:38080");
     }
+    else if (nettype == cryptonote::FAKECHAIN)
+    {
+    }
     else
     {
       full_addrs.insert("107.152.130.98:18080");
@@ -934,7 +937,7 @@ namespace nodetool
     bool res = m_net_server.connect(epee::string_tools::get_ip_string_from_int32(ipv4.ip()),
       epee::string_tools::num_to_string_fast(ipv4.port()),
       m_config.m_net_config.connection_timeout,
-      con);
+      con, m_bind_ip.empty() ? "0.0.0.0" : m_bind_ip);
 
     if(!res)
     {
@@ -999,7 +1002,7 @@ namespace nodetool
     bool res = m_net_server.connect(epee::string_tools::get_ip_string_from_int32(ipv4.ip()),
                                     epee::string_tools::num_to_string_fast(ipv4.port()),
                                     m_config.m_net_config.connection_timeout,
-                                    con);
+                                    con, m_bind_ip.empty() ? "0.0.0.0" : m_bind_ip);
 
     if (!res) {
       bool is_priority = is_priority_node(na);
@@ -1614,7 +1617,7 @@ namespace nodetool
         return false;
       }
       return true;
-    });
+    }, m_bind_ip.empty() ? "0.0.0.0" : m_bind_ip);
     if(!r)
     {
       LOG_WARNING_CC(context, "Failed to call connect_async, network error.");

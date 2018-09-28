@@ -88,11 +88,14 @@ namespace epee
     constexpr span(const span&) noexcept = default;
     span& operator=(const span&) noexcept = default;
 
-    void remove_prefix(std::size_t amount) noexcept
+    /*! Try to remove `amount` elements from beginning of span.
+    \return Number of elements removed. */
+    std::size_t remove_prefix(std::size_t amount) noexcept
     {
         amount = std::min(len, amount);
         ptr += amount;
         len -= amount;
+        return amount;
     }
 
     constexpr iterator begin() const noexcept { return ptr; }

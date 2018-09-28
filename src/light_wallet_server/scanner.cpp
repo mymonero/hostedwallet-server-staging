@@ -530,7 +530,7 @@ namespace lws
                 };
                 users.erase(users.end() - count, users.end());
 
-                rpc::client client = MONERO_UNWRAP("Daemon connect", ctx.connect());
+                rpc::client client = MONERO_UNWRAP(ctx.connect());
                 client.watch_scan_signals();
 
                 auto data = std::make_shared<thread_data>(
@@ -541,7 +541,7 @@ namespace lws
 
             if (!users.empty())
             {
-                rpc::client client = MONERO_UNWRAP("Daemon connect", ctx.connect());
+                rpc::client client = MONERO_UNWRAP(ctx.connect());
                 client.watch_scan_signals();
 
                 auto data = std::make_shared<thread_data>(
@@ -586,7 +586,6 @@ namespace lws
                 }
 
                 auto current_users = MONERO_UNWRAP(
-                    "Active user list",
                     reader->get_accounts(db::account_status::kActive, std::move(accounts_cur))
                 );
                 if (current_users.count() != active.size())
@@ -705,18 +704,17 @@ namespace lws
             {
                 MINFO("Retrieving current active account list");
 
-                auto reader = MONERO_UNWRAP("Start DB read", disk.start_read());
+                auto reader = MONERO_UNWRAP(disk.start_read());
                 auto list = MONERO_UNWRAP(
-                    "Active user list", reader.get_accounts(db::account_status::kActive)
+                    reader.get_accounts(db::account_status::kActive)
                 );
 
                 for (auto current = list.make_iterator(); !current.is_end(); ++current)
                 {
                     db::account user = *current;
                     std::vector<db::output_id> receives{};
-                    auto receive_list = MONERO_UNWRAP(
-                        "User receive list", reader.get_outputs(user.id)
-                    );
+                    auto receive_list = MONERO_UNWRAP(reader.get_outputs(user.id));
+
                     auto id_range = receive_list.make_range<MONERO_FIELD(db::output, spend_meta.id)>();
                     std::copy(
                         id_range.begin(), id_range.end(), std::back_inserter(receives)
@@ -742,7 +740,7 @@ namespace lws
                 return;
 
             if (!client)
-                client = MONERO_UNWRAP("Daemon connect", ctx.connect());
+                client = MONERO_UNWRAP(ctx.connect());
 
             expect<rpc::client> synced = sync(disk.clone(), std::move(client));
             if (!synced)

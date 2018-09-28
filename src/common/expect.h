@@ -1,4 +1,32 @@
-#pragma once 
+// Copyright (c) 2018, The Monero Project
+//
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without modification, are
+// permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this list of
+//    conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice, this list
+//    of conditions and the following disclaimer in the documentation and/or other
+//    materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its contributors may be
+//    used to endorse or promote products derived from this software without specific
+//    prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+// THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+// STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
+// THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+#pragma once
 
 #include <cassert>
 #include <system_error>
@@ -25,32 +53,25 @@
     } while (0)
 
 /*! Get `T` from `expect<T>` by `std::move` as-if by function call.
-`expect<void>` returns nothing. On error throw `error_msg` with file and line. */
-#define MONERO_UNWRAP(error_msg, ...) \
-    ::detail::expect::unwrap( __VA_ARGS__ , error_msg , __FILE__ , __LINE__ )
+    `expect<void>` returns nothing.
 
-//! Check `expect<T>`, and on error log error, `error_msg`, filename, and line.
-#define MONERO_LOG_ERRORS(error_msg, ...) \
-    ::detail::expect::catch_( __VA_ARGS__ , error_msg , __FILE__ , __LINE__ )
+    \throw std::system_error with `expect<T>::error()`, filename and line
+        number when `expect<T>::has_error() == true`.*/
+#define MONERO_UNWRAP(...)                                        \
+    ::detail::expect::unwrap( __VA_ARGS__ , nullptr, __FILE__ , __LINE__ )
 
-/* Throw `std::system_error` with `code` and `msg` as part of the details. The
+/* \throw std::system_error with `code` and `msg` as part of the details. The
 filename and line number will automatically be injected into the explanation
 string. `code` can be any enum convertible to `std::error_code`. */
 #define MONERO_THROW(code, msg) \
     ::detail::expect::throw_( code , msg , __FILE__ , __LINE__ )
-
-/*! Check `expect<T>`, and on error log message + call `_Exit(1)`. This is
-intended to be used to check `expect<T>` on a function returning `void` with
-the `noexcept` specifier (usually a destructor or thread issue that cannot
-fail gracefully). */
-#define MONERO_ABORT_ON_ERROR(error_msg, ...) \
-    ::detail::expect::require( __VA_ARGS__ , error_msg , __FILE__ , __LINE__ )
 
 
 template<typename> class expect;
 
 namespace detail
 {
+    // Shortens the characters in the places that `enable_if` is used below.
     template<bool C>
     using enable_if = typename std::enable_if<C>::type;
  
@@ -91,11 +112,11 @@ namespace detail
     `assert(expect<int>{make_error_code(common_error::kInvalidArgument)} == error::kInvalidArgument)`).
     Comparison of default constructed `std::error_code` will always fail.
     "Generic" comparisons can be done with `std::error_condition` via the `matches`
-    method only (i.e. 
-    `assert(expect<int>{make_error_code{error::kInvalidArgument}.matches(std::errc::invalid_argument))`),
+    method only (i.e.
+    `assert(expect<int>{make_error_code{common_error::kInvalidErrorCode}.matches(std::errc::invalid_argument))`),
     `operator==` and `operator!=` will not work with `std::errc` or
     `std::error_condition`. A comparison with `matches` is more expensive
-    because an equivalency between error cateogries is computed, but is
+    because an equivalency between error categories is computed, but is
     recommended when an error can be one of several categories (this is going
     to be the case in nearly every situation when calling a function from
     another C++ struct/class).
@@ -104,6 +125,8 @@ namespace detail
     functions that can fail, but otherwise would return `void`. It is useful
     for consistency; all macros, standalone functions, and comparison operators
     work with `expect<void>`.
+
+    \note See `src/common/error.h` for creating a custom error enum.
  */
 template<typename T>
 class expect
@@ -116,7 +139,7 @@ class expect
         return std::is_constructible<T, U>() &&
             std::is_convertible<U, T>();
     }
- 
+
     // MEMBERS
     std::error_code code_;
     typename std::aligned_storage<sizeof(T), alignof(T)>::type storage_;

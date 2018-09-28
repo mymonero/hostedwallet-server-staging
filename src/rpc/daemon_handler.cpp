@@ -260,44 +260,6 @@ namespace rpc
 
   }
 
-  //TODO: handle "restricted" RPC
-  void DaemonHandler::handle(const GetRandomOutputsForAmounts::Request& req, GetRandomOutputsForAmounts::Response& res)
-  {
-    auto& chain = m_core.get_blockchain_storage();
-
-    try
-    {
-      for (const uint64_t& amount : req.amounts)
-      {
-        std::vector<uint64_t> indices = chain.get_random_outputs(amount, req.count);
-
-        outputs_for_amount ofa;
-
-        ofa.resize(indices.size());
-
-        for (size_t i = 0; i < indices.size(); i++)
-        {
-          crypto::public_key key = chain.get_output_key(amount, indices[i]);
-          ofa[i].amount_index = indices[i];
-          ofa[i].key = key;
-        }
-
-        amount_with_random_outputs amt;
-        amt.amount = amount;
-        amt.outputs = ofa;
-
-        res.amounts_with_outputs.push_back(amt);
-      }
-
-      res.status = Message::STATUS_OK;
-    }
-    catch (const std::exception& e)
-    {
-      res.status = Message::STATUS_FAILED;
-      res.error_details = e.what();
-    }
-  }
-
   void DaemonHandler::handle(const SendRawTx::Request& req, SendRawTx::Response& res)
   {
     auto tx_blob = cryptonote::tx_to_blob(req.tx);
@@ -472,7 +434,8 @@ namespace rpc
     res.info.testnet = m_core.get_nettype() == TESTNET;
     res.info.stagenet = m_core.get_nettype() == STAGENET;
     res.info.cumulative_difficulty = m_core.get_blockchain_storage().get_db().get_block_cumulative_difficulty(res.info.height - 1);
-    res.info.block_size_limit = m_core.get_blockchain_storage().get_current_cumulative_blocksize_limit();
+    res.info.block_size_limit = res.info.block_weight_limit = m_core.get_blockchain_storage().get_current_cumulative_block_weight_limit();
+    res.info.block_size_median = res.info.block_weight_median = m_core.get_blockchain_storage().get_current_cumulative_block_weight_median();
     res.info.start_time = (uint64_t)m_core.get_start_time();
 
     res.status = Message::STATUS_OK;
@@ -763,7 +726,7 @@ namespace rpc
 
   void DaemonHandler::handle(const GetPerKBFeeEstimate::Request& req, GetPerKBFeeEstimate::Response& res)
   {
-    res.estimated_fee_per_kb = m_core.get_blockchain_storage().get_dynamic_per_kb_fee_estimate(req.num_grace_blocks);
+    res.estimated_fee_per_kb = m_core.get_blockchain_storage().get_dynamic_base_fee_estimate(req.num_grace_blocks);
     res.status = Message::STATUS_OK;
   }
 
@@ -823,7 +786,6 @@ namespace rpc
       REQ_RESP_TYPES_MACRO(request_type, GetTransactions, req_json, resp_message, handle);
       REQ_RESP_TYPES_MACRO(request_type, KeyImagesSpent, req_json, resp_message, handle);
       REQ_RESP_TYPES_MACRO(request_type, GetTxGlobalOutputIndices, req_json, resp_message, handle);
-      REQ_RESP_TYPES_MACRO(request_type, GetRandomOutputsForAmounts, req_json, resp_message, handle);
       REQ_RESP_TYPES_MACRO(request_type, SendRawTx, req_json, resp_message, handle);
       REQ_RESP_TYPES_MACRO(request_type, GetInfo, req_json, resp_message, handle);
       REQ_RESP_TYPES_MACRO(request_type, StartMining, req_json, resp_message, handle);

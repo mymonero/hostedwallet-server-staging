@@ -297,9 +297,7 @@ namespace db
 
         void check_blockchain(MDB_txn& txn, MDB_dbi tbl)
         {
-            cursor::blocks cur = MONERO_UNWRAP(
-                "Blocks cursor", lmdb::open_cursor<cursor::close_blocks>(txn, tbl)
-            );
+            cursor::blocks cur = MONERO_UNWRAP(lmdb::open_cursor<cursor::close_blocks>(txn, tbl));
 
             std::map<std::uint64_t, crypto::hash> const& points =
                 get_checkpoints().get_points();
@@ -341,8 +339,7 @@ namespace db
                 ///
                 /// TODO Trim blockchain after a checkpoint has been reached
                 ///
-                const crypto::hash genesis =
-                    MONERO_UNWRAP("Genesis block hash", get_block_hash(*cur, block_id(0)));
+                const crypto::hash genesis = MONERO_UNWRAP(get_block_hash(*cur, block_id(0)));
                 if (genesis != points.begin()->second)
                 {
                     MONERO_THROW(
@@ -474,7 +471,7 @@ namespace db
 
             check_blockchain(*txn, tables.blocks);
 
-            MONERO_UNWRAP("Store accounts tables", this->commit(std::move(txn)));
+            MONERO_UNWRAP(this->commit(std::move(txn)));
         }
     };
 
@@ -810,7 +807,7 @@ namespace db
     {
         return {
             std::make_shared<storage_internal>(
-                MONERO_UNWRAP("Open accounts database", lmdb::open_environment(path, 20)), create_queue_max
+                MONERO_UNWRAP(lmdb::open_environment(path, 20)), create_queue_max
             )
         };
     }

@@ -26,6 +26,8 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "error.h"
 
+#include <string>
+
 namespace
 {
     struct category final : std::error_category
@@ -55,6 +57,7 @@ namespace
 
         virtual std::error_condition default_error_condition(int value) const noexcept override final
         {
+            // maps specific errors to generic `std::errc` cases.
             switch (common_error(value))
             {
                 case common_error::kInvalidArgument:
